@@ -1,3 +1,5 @@
+#include <Arduino.h>
+
 // Copyright 2015-2016 Espressif Systems (Shanghai) PTE LTD
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
@@ -980,4 +982,9 @@ void startCameraServer()
 
 void setupLedFlash(int pin)
 {
+#if CONFIG_LED_ILLUMINATOR_ENABLED
+    ledcAttachPin(pin, 8);
+#else
+    log_i("LED flash is disabled -> CONFIG_LED_ILLUMINATOR_ENABLED = 0");
+#endif
 }

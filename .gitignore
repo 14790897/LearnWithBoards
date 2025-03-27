@@ -41,3 +41,4 @@ secrets.h
 README
 qrcode.py
 link_qr.png
+config.json
