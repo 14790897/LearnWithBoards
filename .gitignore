@@ -37,5 +37,6 @@ Thumbs.db  # Windows 系统文件
 *.env
 secrets.h
 
+# 其它
 README
-qrcod.py
+qrcode.py
