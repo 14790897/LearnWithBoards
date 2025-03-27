@@ -1,0 +1,41 @@
+# PlatformIO 特定文件和目录
+.pio
+.pioenvs
+.piolibdeps
+.clang_complete
+.gcc-flags.json
+
+# 编译生成的文件
+*.o
+*.elf
+*.bin
+*.hex
+*.map
+*.a
+
+# VS Code 相关文件（如果使用 VS Code 作为 IDE）
+.vscode/
+!.vscode/extensions.json  # 如果你想保留扩展配置，可以取消忽略
+
+# 临时文件
+*.tmp
+*.bak
+*.swp
+
+# 日志文件
+*.log
+
+# 依赖管理
+lib/*
+!lib/readme.txt  # 如果你有自定义的 lib 说明文件，可以保留
+
+# 其他常见忽略
+.DS_Store  # macOS 系统文件
+Thumbs.db  # Windows 系统文件
+
+# 如果有敏感信息文件（例如环境变量或密钥）
+*.env
+secrets.h
+
+README
+qrcod.py
