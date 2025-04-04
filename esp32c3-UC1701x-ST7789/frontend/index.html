@@ -1,0 +1,96 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>视频上传与处理</title>
+</head>
+<body>
+  <h1>上传视频并发送到 ESP32</h1>
+  <input type="file" id="videoInput" accept="video/*">
+  <button id="processButton">处理并发送</button>
+  <script>
+    // 常量定义
+    const ESP32_IP = "http://192.168.0.10"; // ESP32 的 IP 地址
+    const CANVAS_WIDTH = 60;              // 画布宽度
+    const CANVAS_HEIGHT = 60;             // 画布高度
+    const FRAME_INTERVAL = 100;            // 每帧间隔（毫秒）
+    const THRESHOLD = 128;                 // 二值化阈值
+
+    // DOM 元素
+    const videoInput = document.getElementById("videoInput");
+    const processButton = document.getElementById("processButton");
+
+    // 处理按钮点击事件
+    processButton.addEventListener("click", async () => {
+      if (!videoInput.files.length) {
+        alert("请先选择一个视频文件！");
+        return;
+      }
+
+      const videoFile = videoInput.files[0];
+      const videoURL = URL.createObjectURL(videoFile);
+
+      // 创建视频元素
+      const video = document.createElement("video");
+      video.src = videoURL;
+      video.crossOrigin = "anonymous";
+      video.muted = true;
+      video.play();
+
+      // 等待视频加载完成
+      video.addEventListener("loadeddata", async () => {
+        const canvas = document.createElement("canvas");
+        const ctx = canvas.getContext("2d");
+        canvas.width = CANVAS_WIDTH;
+        canvas.height = CANVAS_HEIGHT;
+
+        const frames = [];
+
+        // 提取并处理视频帧
+        while (video.currentTime < video.duration) {
+          ctx.drawImage(video, 0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
+          const imageData = ctx.getImageData(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
+          const binaryData = processFrame(imageData);
+          frames.push(binaryData);
+          video.currentTime += FRAME_INTERVAL / 1000;
+          await delay(FRAME_INTERVAL);
+        }
+
+        // 发送帧数据到 ESP32
+        await sendFramesToESP32(frames);
+        alert("视频已发送到 ESP32！");
+      });
+    });
+
+    // 处理帧数据（二值化）
+    function processFrame(imageData) {
+      const binaryData = [];
+      for (let i = 0; i < imageData.data.length; i += 4) {
+        const r = imageData.data[i];
+        const g = imageData.data[i + 1];
+        const b = imageData.data[i + 2];
+        const avg = (r + g + b) / 3;
+        binaryData.push(avg > THRESHOLD ? 1 : 0);
+      }
+      return binaryData;
+    }
+
+    // 延迟函数
+    function delay(ms) {
+      return new Promise((resolve) => setTimeout(resolve, ms));
+    }
+
+    // 发送帧数据到 ESP32
+    async function sendFramesToESP32(frames) {
+      for (const frame of frames) {
+        await fetch(`${ESP32_IP}/upload`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ frame }),
+        });
+      }
+    }
+  </script>
+</body>
+</html>
