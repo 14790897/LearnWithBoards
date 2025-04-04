@@ -3,16 +3,18 @@
   Description : The SD card is accessed using the SDMMC one-bit bus
   Auther      : www.freenove.com
   Modification: 2022/10/28
-**********************************************************************/
+  **********************************************************************/
+#include "Arduino.h"
 #include "sd_read_write.h"
 #include "SD_MMC.h"
-
 #define SD_MMC_CMD 38 // Please do not modify it.
 #define SD_MMC_CLK 39 // Please do not modify it.
 #define SD_MMC_D0 40  // Please do not modify it.
 
 void setup()
 {
+    Serial.println("Start!");
+
     Serial.begin(115200);
     SD_MMC.setPins(SD_MMC_CLK, SD_MMC_CMD, SD_MMC_D0);
     if (!SD_MMC.begin("/sdcard", true, true, SDMMC_FREQ_DEFAULT, 5))
@@ -58,8 +60,8 @@ void setup()
     removeDir(SD_MMC, "/mydir");
     listDir(SD_MMC, "/", 2);
 
-    writeFile(SD_MMC, "/hello.txt", "Hello ");
-    appendFile(SD_MMC, "/hello.txt", "World!\n");
+    writeFile(SD_MMC, "/hello.txt", "Hello 发短信放大vdsfsddfasasdsadsda");
+    appendFile(SD_MMC, "/hello.txt", "World! 发短信放大vdsfsddfasasdsadsda\n");
     readFile(SD_MMC, "/hello.txt");
 
     deleteFile(SD_MMC, "/foo.txt");
