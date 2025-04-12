@@ -3,7 +3,6 @@
 #include <WiFiUdp.h>
 #include <ArduinoOTA.h>
 #include "secrets.h"
-#include <U8g2lib.h>
 #include <time.h> // Include time library for NTP
 
 IPAddress local_IP(192, 168, 0, 10); // 静态 IP 地址

@@ -39,30 +39,13 @@ void listDir(fs::FS &fs, const char *dirname, uint8_t levels)
   }
 }
 
-void createDir(fs::FS &fs, const char *path)
+bool removeDir(fs::FS &fs, const char *path)
 {
-  Serial.printf("Creating Dir: %s\n", path);
-  if (fs.mkdir(path))
-  {
-    Serial.println("Dir created");
-  }
-  else
-  {
-    Serial.println("mkdir failed");
-  }
+  return fs.rmdir(path); // rmdir 返回 bool
 }
-
-void removeDir(fs::FS &fs, const char *path)
+bool createDir(fs::FS &fs, const char *path)
 {
-  Serial.printf("Removing Dir: %s\n", path);
-  if (fs.rmdir(path))
-  {
-    Serial.println("Dir removed");
-  }
-  else
-  {
-    Serial.println("rmdir failed");
-  }
+  return fs.mkdir(path); // mkdir 返回 bool
 }
 
 void readFile(fs::FS &fs, const char *path)
