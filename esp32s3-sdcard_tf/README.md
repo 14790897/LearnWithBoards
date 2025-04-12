@@ -4,7 +4,7 @@
 
 ESP32-S3 SD Card Web Explorer 是一个基于 ESP32-S3 microcontroller 的 SD 卡文件系统 Web 浏览器和管理工具。该项目允许用户通过 Wi-Fi 连接到 ESP32，并使用网页界面访问、管理和操作连接到设备的 SD 卡上的文件和目录。
 
-![ESP32-S3 SD卡管理器](https://raw.githubusercontent.com/username/ESP32-S3-SD-Card-Web-Explorer/main/images/screenshot.png)
+![ESP32-S3 SD卡管理器](./image.png)
 
 ## 功能特点
 
