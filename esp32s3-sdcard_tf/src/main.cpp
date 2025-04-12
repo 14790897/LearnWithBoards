@@ -10,9 +10,22 @@
 #include <AsyncTCP.h>
 #include <ESPAsyncWebServer.h>
 #include <ArduinoJson.h>
-#include <secrets.h>
+#include <secrets.h>  // 重要: 您需要创建此文件，包含WiFi凭据 (见下方说明)
 #include <esp_task_wdt.h>  // Add watchdog timer support
 #include <ESPmDNS.h>
+
+/* 重要说明: 
+ * 请在src目录下创建一个名为"secrets.h"的文件，内容如下:
+ * 
+ * #ifndef SECRETS_H
+ * #define SECRETS_H
+ * 
+ * // WiFi连接凭据
+ * const char* ssid = "您的WiFi名称";
+ * const char* password = "您的WiFi密码";
+ * 
+ * #endif
+ */
 
 #define SD_MMC_CMD 38 // Please do not modify it.
 #define SD_MMC_CLK 39 // Please do not modify it.
