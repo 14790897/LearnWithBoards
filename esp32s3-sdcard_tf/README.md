@@ -48,6 +48,7 @@ SD卡与ESP32-S3的连接方式：
 - ESPAsyncWebServer 库
 - ArduinoJson 库
 - ESP32 Arduino Core
+- windows需要下载[bonjour打印机驱动](https://support.apple.com/en-us/106380)
 
 ## 安装与使用
 

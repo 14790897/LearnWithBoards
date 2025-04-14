@@ -2,4 +2,6 @@
 
 ## 1. 项目简介
 
-### 你好
+鸣谢
+esp32-mpu6050参考
+https://randomnerdtutorials.com/esp32-mpu-6050-accelerometer-gyroscope-arduino/
