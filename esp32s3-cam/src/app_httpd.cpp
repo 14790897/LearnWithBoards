@@ -22,6 +22,7 @@
 #include "esp_system.h"
 #include <string>
 #include "time.h" // Include time library for timestamp
+#include "mpu_handler.h" // Add MPU handler include
 #if defined(ARDUINO_ARCH_ESP32) && defined(CONFIG_ARDUHAL_ESP_LOG)
 #include "esp32-hal-log.h"
 #endif
@@ -53,7 +54,7 @@ typedef struct
 #define PART_BOUNDARY "123456789000000000000987654321"
 static const char *_STREAM_CONTENT_TYPE = "multipart/x-mixed-replace;boundary=" PART_BOUNDARY;
 static const char *_STREAM_BOUNDARY = "\r\n--" PART_BOUNDARY "\r\n";
-static const char *_STREAM_PART = "Content-Type: image/jpeg\r\nContent-Length: %u\r\nX-Timestamp: %d.%06d\r\n\r\n";
+static const char *_STREAM_PART = "Content-Type: image/jpeg\r\nContent-Length: %u\r\nX-Timestamp: %d.%06d\r\nX-IMU-Data: %f,%f,%f,%f,%f,%f\r\n\r\n";
 
 httpd_handle_t stream_httpd = NULL;
 httpd_handle_t camera_httpd = NULL;
@@ -275,8 +276,13 @@ void recordTask(void *param) {
     while (isRecording) {
         camera_fb_t *fb = esp_camera_fb_get();
         if (fb) {
+            // Read MPU data for this frame
+            readMPUData();
+            MPUData mpu_data = getMPUData();
+            
             uint64_t timestamp = esp_timer_get_time();
-            size_t data_size = sizeof(timestamp) + sizeof(uint32_t) + fb->len;
+            // Store frame size, timestamp, and MPU data
+            size_t data_size = sizeof(timestamp) + sizeof(uint32_t) + fb->len + sizeof(MPUData);
             
             // If adding this frame would exceed buffer, flush first
             if (buffer_used + data_size > buffer_size) {
@@ -291,6 +297,8 @@ void recordTask(void *param) {
                 videoFile.write((uint8_t *)&timestamp, sizeof(timestamp));
                 uint32_t len = fb->len;
                 videoFile.write((uint8_t *)&len, 4);
+                // Write MPU data
+                videoFile.write((uint8_t *)&mpu_data, sizeof(MPUData));
                 videoFile.write(fb->buf, fb->len);
             } else {
                 // Otherwise add to buffer
@@ -299,6 +307,9 @@ void recordTask(void *param) {
                 uint32_t len = fb->len;
                 memcpy(temp_buffer + buffer_used, (uint8_t *)&len, 4);
                 buffer_used += 4;
+                // Add MPU data to buffer
+                memcpy(temp_buffer + buffer_used, (uint8_t *)&mpu_data, sizeof(MPUData));
+                buffer_used += sizeof(MPUData);
                 memcpy(temp_buffer + buffer_used, fb->buf, fb->len);
                 buffer_used += fb->len;
             }
@@ -496,6 +507,7 @@ static esp_err_t xclk_handler(httpd_req_t *req)
     return httpd_resp_send(req, NULL, 0);
 }
 
+
 void startCameraServer()
 {
     // Initialize SD Card
@@ -503,6 +515,9 @@ void startCameraServer()
     {
         log_e("Failed to initialize SD card - recording will be disabled");
     }
+    
+    // Initialize MPU6050
+    initializeMPU();
 
     httpd_config_t config = HTTPD_DEFAULT_CONFIG();
     config.max_uri_handlers = 16;
@@ -541,6 +556,7 @@ void startCameraServer()
 #endif
     };
 
+
     ra_filter_init(&ra_filter, 20);
 
     log_i("Starting web server on port: '%d'", config.server_port);
@@ -553,6 +569,7 @@ void startCameraServer()
     } else {
         log_e("Failed to start camera server");
     }
+
 }
 
 void setupLedFlash(int pin)

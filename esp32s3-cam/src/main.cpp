@@ -1,3 +1,4 @@
+#include "Arduino.h"
 #include "esp_camera.h"
 #include "app_httpd.h"
 #include "mpu_handler.h" // Include the MPU handler
