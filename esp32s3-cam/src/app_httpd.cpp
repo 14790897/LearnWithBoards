@@ -78,6 +78,9 @@ unsigned long recordingStartTime = 0;
 
 static TaskHandle_t recordTaskHandle = NULL;
 
+// Declare external variable for MPU control
+extern bool enableMPU;
+
 // HTML page with recording controls
 static const char RECORDING_CONTROL_HTML[] = R"rawliteral(
 <!DOCTYPE html>
@@ -251,6 +254,33 @@ String generateUniqueFilePath(const char *basePath) {
     return filePath;
 }
 
+// MPU control handler 通过访问 /mpu_toggle?enable=1 打开，/mpu_toggle?enable=0 关闭
+static esp_err_t mpu_toggle_handler(httpd_req_t *req)
+{
+    char query[32] = {0};
+    char value[8] = {0};
+    bool changed = false;
+
+    if (httpd_req_get_url_query_str(req, query, sizeof(query)) == ESP_OK) {
+        if (httpd_query_key_value(query, "enable", value, sizeof(value)) == ESP_OK) {
+            if (strcmp(value, "1") == 0) {
+                enableMPU = true;
+                changed = true;
+            } else if (strcmp(value, "0") == 0) {
+                enableMPU = false;
+                changed = true;
+            }
+        }
+    }
+    httpd_resp_set_type(req, "text/plain");
+    if (changed) {
+        httpd_resp_sendstr(req, enableMPU ? "MPU enabled" : "MPU disabled");
+    } else {
+        httpd_resp_sendstr(req, enableMPU ? "MPU is ON" : "MPU is OFF");
+    }
+    return ESP_OK;
+}
+
 void recordTask(void *param) {
     size_t psram_size = ESP.getFreePsram();
     size_t buffer_size = psram_size > 0 ? 32768 : 4096; // Use larger buffer if PSRAM is available
@@ -276,13 +306,16 @@ void recordTask(void *param) {
     while (isRecording) {
         camera_fb_t *fb = esp_camera_fb_get();
         if (fb) {
-            // Read MPU data for this frame
-            readMPUData();
-            MPUData mpu_data = getMPUData();
+            // Read MPU data only if enabled, otherwise fill with zeros
+            MPUData mpu_data = {};
+            if (enableMPU) {
+                readMPUData();
+                mpu_data = getMPUData();
+            }
             
             uint64_t timestamp = esp_timer_get_time();
             // Store frame size, timestamp, and MPU data
-            size_t data_size = sizeof(timestamp) + sizeof(uint32_t) + fb->len + sizeof(MPUData);
+            size_t data_size = sizeof(timestamp) + sizeof(uint32_t) + fb->len + (enableMPU ? sizeof(MPUData) : 0);
             
             // If adding this frame would exceed buffer, flush first
             if (buffer_used + data_size > buffer_size) {
@@ -297,8 +330,10 @@ void recordTask(void *param) {
                 videoFile.write((uint8_t *)&timestamp, sizeof(timestamp));
                 uint32_t len = fb->len;
                 videoFile.write((uint8_t *)&len, 4);
-                // Write MPU data
-                videoFile.write((uint8_t *)&mpu_data, sizeof(MPUData));
+                // Write MPU data only if enabled
+                if (enableMPU) {
+                    videoFile.write((uint8_t *)&mpu_data, sizeof(MPUData));
+                }
                 videoFile.write(fb->buf, fb->len);
             } else {
                 // Otherwise add to buffer
@@ -307,9 +342,11 @@ void recordTask(void *param) {
                 uint32_t len = fb->len;
                 memcpy(temp_buffer + buffer_used, (uint8_t *)&len, 4);
                 buffer_used += 4;
-                // Add MPU data to buffer
-                memcpy(temp_buffer + buffer_used, (uint8_t *)&mpu_data, sizeof(MPUData));
-                buffer_used += sizeof(MPUData);
+                // Add MPU data to buffer only if enabled
+                if (enableMPU) {
+                    memcpy(temp_buffer + buffer_used, (uint8_t *)&mpu_data, sizeof(MPUData));
+                    buffer_used += sizeof(MPUData);
+                }
                 memcpy(temp_buffer + buffer_used, fb->buf, fb->len);
                 buffer_used += fb->len;
             }
@@ -556,6 +593,12 @@ void startCameraServer()
 #endif
     };
 
+    httpd_uri_t mpu_toggle_uri = {
+        .uri = "/mpu_toggle",
+        .method = HTTP_GET,
+        .handler = mpu_toggle_handler,
+        .user_ctx = NULL
+    };
 
     ra_filter_init(&ra_filter, 20);
 
@@ -565,6 +608,7 @@ void startCameraServer()
         httpd_register_uri_handler(camera_httpd, &index_uri);  // Register index handler
         httpd_register_uri_handler(camera_httpd, &xclk_uri);
         httpd_register_uri_handler(camera_httpd, &record_uri); // Register record handler
+        httpd_register_uri_handler(camera_httpd, &mpu_toggle_uri); // Register MPU control handler
         log_i("Camera server started successfully");
     } else {
         log_e("Failed to start camera server");

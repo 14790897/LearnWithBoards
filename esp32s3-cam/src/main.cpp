@@ -11,6 +11,9 @@
 #define I2C_SDA 21
 #define I2C_SCL 47
 
+// 增加全局变量用于控制MPU功能开关，默认关闭
+bool enableMPU = false;
+
 // WARNING!!! PSRAM IC required for UXGA resolution and high JPEG quality
 //            Ensure ESP32 Wrover Module or other board with PSRAM is selected
 //            Partial images will be transmitted if image exceeds buffer size
@@ -176,14 +179,18 @@ void setup()
     Serial.print(hostname);
     Serial.println(".local' on compatible devices");
 
-    // Initialize MPU6050
-    initializeMPU();
+    // Initialize MPU6050（根据开关决定是否初始化）
+    if (enableMPU) {
+        initializeMPU();
+    }
 }
 
 void loop()
 {
-    // Read MPU6050 data
-    readMPUData();
+    // 仅在开关打开时读取MPU数据
+    if (enableMPU) {
+        readMPUData();
+    }
 
     // Delay before the next reading
     delay(1000);
