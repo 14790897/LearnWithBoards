@@ -23,13 +23,13 @@
 #include <string>
 #include "time.h" // Include time library for timestamp
 #include "mpu_handler.h" // Add MPU handler include
+#include "esp_sntp.h" // Add for NTP time sync
 #if defined(ARDUINO_ARCH_ESP32) && defined(CONFIG_ARDUHAL_ESP_LOG)
 #include "esp32-hal-log.h"
 #endif
 #define SD_MMC_CMD 38 // Please do not modify it.
 #define SD_MMC_CLK 39 // Please do not modify it.
 #define SD_MMC_D0 40  // Please do not modify it.
-
 
 // Enable LED FLASH setting
 #define CONFIG_LED_ILLUMINATOR_ENABLED 1
@@ -197,36 +197,54 @@ void enable_led(bool en)
         duty = CONFIG_LED_MAX_INTENSITY;
     }
     ledcWrite(LED_LEDC_GPIO, duty);
-    log_i("Set LED intensity to %d", duty);
+    Serial.printf("[I] Set LED intensity to %d\n", duty);
 }
 #endif
+
+// Redirect ESP-IDF log output to Arduino Serial
+extern "C" {
+    #include "esp_log.h"
+}
+static int arduino_log_write_v(const char *fmt, va_list args) {
+    char buf[256];
+    int len = vsnprintf(buf, sizeof(buf), fmt, args);
+    if (len > 0) {
+        Serial.print(buf);
+    }
+    return len;
+}
+static void redirect_esp_log_to_serial() {
+    esp_log_set_vprintf([](const char *fmt, va_list args) -> int {
+        return arduino_log_write_v(fmt, args);
+    });
+}
 
 // Initialize SD card
 static bool initSDCard()
 {
     // Check if PSRAM is enabled and available
     if(psramFound()) {
-        log_i("PSRAM is enabled, size: %d MB", esp_psram_get_size() / (1024 * 1024));
+        Serial.printf("[I] PSRAM is enabled, size: %d MB\n", ESP.getPsramSize() / (1024 * 1024));
     } else {
-        log_w("PSRAM is not initialized! Recording performance may be limited");
+        Serial.printf("[W] PSRAM is not initialized! Recording performance may be limited\n");
     }
 
     SD_MMC.setPins(SD_MMC_CLK, SD_MMC_CMD, SD_MMC_D0);
 
     if (!SD_MMC.begin("/sdcard", true))
     { // Use 1-bit mode for compatibility
-        log_e("SD Card Mount Failed");
+        Serial.printf("[E] SD Card Mount Failed\n");
         return false;
     }
 
     uint8_t cardType = SD_MMC.cardType();
     if (cardType == CARD_NONE)
     {
-        log_e("No SD Card attached");
+        Serial.printf("[E] No SD Card attached\n");
         return false;
     }
 
-    log_i("SD Card initialized. Type: %d", cardType);
+    Serial.printf("[I] SD Card initialized. Type: %d\n", cardType);
 
 
     return true;
@@ -243,7 +261,7 @@ String generateUniqueFilePath(const char *basePath) {
     time_t now;
     struct tm timeinfo;
     if (!getLocalTime(&timeinfo)) {
-        log_e("Failed to obtain time");
+        Serial.printf("[E] Failed to obtain time\n");
         return filePath; // Fallback to base path
     }
 
@@ -283,27 +301,36 @@ static esp_err_t mpu_toggle_handler(httpd_req_t *req)
 
 void recordTask(void *param) {
     size_t psram_size = ESP.getFreePsram();
-    size_t buffer_size = psram_size > 0 ? 32768 : 4096; // Use larger buffer if PSRAM is available
+    // 直接使用最多6MB作为缓冲区（如果PSRAM足够）
+    size_t buffer_size = psram_size > 6291456 ? 6291456 : (psram_size > 2097152 ? 2097152 : (psram_size > 131072 ? 131072 : (psram_size > 32768 ? 32768 : 4096)));
     uint8_t* temp_buffer = NULL;
     
-    if(psram_size > 0) {
+    if(psram_size > buffer_size) {
         temp_buffer = (uint8_t*)ps_malloc(buffer_size);
-        log_i("Using PSRAM for video buffer, size: %d bytes", buffer_size);
+        Serial.printf("[I] Using PSRAM for video buffer, size: %d bytes\n", buffer_size);
+    } else if(psram_size > 0) {
+        temp_buffer = (uint8_t*)ps_malloc(buffer_size);
+        Serial.printf("[I] Using PSRAM for video buffer, size: %d bytes\n", buffer_size);
     } else {
         temp_buffer = (uint8_t*)malloc(buffer_size);
-        log_i("Using heap for video buffer, size: %d bytes", buffer_size);
+        Serial.printf("[I] Using heap for video buffer, size: %d bytes\n", buffer_size);
     }
     
     if(!temp_buffer) {
-        log_e("Failed to allocate video buffer");
+        Serial.printf("[E] Failed to allocate video buffer\n");
         isRecording = false;
         vTaskDelete(NULL);
         return;
     }
     
     size_t buffer_used = 0;
+    int totalFrameCount = 0; // 总帧数
+
+    unsigned long lastFpsMillis = millis();
+    int lastFpsFrameCount = 0;
     
     while (isRecording) {
+        uint32_t frame_start = millis(); // 记录帧开始时间
         camera_fb_t *fb = esp_camera_fb_get();
         if (fb) {
             // Read MPU data only if enabled, otherwise fill with zeros
@@ -351,12 +378,22 @@ void recordTask(void *param) {
                 buffer_used += fb->len;
             }
             
+            totalFrameCount++;
+            lastFpsFrameCount++;
             esp_camera_fb_return(fb);
+
+            // 输出每秒帧率
+            unsigned long nowFpsMillis = millis();
+            if (nowFpsMillis - lastFpsMillis >= 1000) {
+                Serial.printf("[I] FPS: %d\n", lastFpsFrameCount);
+                lastFpsFrameCount = 0;
+                lastFpsMillis = nowFpsMillis;
+            }
             
-            // Flush every ~1 second to ensure data safety
+            // Flush every ~2 seconds以减少写入频率
             static uint32_t last_flush = 0;
             uint32_t now = millis();
-            if (now - last_flush > 1000) {
+            if (now - last_flush > 2000) {
                 if (buffer_used > 0) {
                     videoFile.write(temp_buffer, buffer_used);
                     buffer_used = 0;
@@ -365,6 +402,12 @@ void recordTask(void *param) {
                 last_flush = now;
             }
         }
+        // 固定帧率控制（如10fps，帧间隔100ms）
+        const uint32_t target_frame_interval = 100; // 单位: ms, 10fps
+        uint32_t frame_time = millis() - frame_start;
+        if (frame_time < target_frame_interval) {
+            vTaskDelay((target_frame_interval - frame_time) / portTICK_PERIOD_MS);
+        }
     }
     
     // Final flush of any remaining data
@@ -372,6 +415,7 @@ void recordTask(void *param) {
         videoFile.write(temp_buffer, buffer_used);
     }
     videoFile.flush();
+    Serial.printf("[I] Total frames saved: %d\n", totalFrameCount);
     
     // Free the buffer
     free(temp_buffer);
@@ -381,40 +425,40 @@ void recordTask(void *param) {
 // Handler for starting/stopping recording
 static esp_err_t record_handler(httpd_req_t *req)
 {
-    log_i("Record handler called");
+    Serial.printf("[I] Record handler called\n");
     
     char *buf = NULL;
     char action[32] = {0}; // Initialize to zeros
 
     // Parse query parameters
     size_t buf_len = httpd_req_get_url_query_len(req);
-    log_i("Query length: %d", buf_len);
+    Serial.printf("[I] Query length: %d\n", buf_len);
     
     if (buf_len > 0)
     {
         buf = (char *)malloc(buf_len + 1);
         if (buf == NULL) {
-            log_e("Failed to allocate memory for query");
+            Serial.printf("[E] Failed to allocate memory for query\n");
             httpd_resp_send_500(req);
             return ESP_FAIL;
         }
         
         esp_err_t parse_result = httpd_req_get_url_query_str(req, buf, buf_len + 1);
-        log_i("Parse query result: %d, query: %s", parse_result, buf);
+        Serial.printf("[I] Parse query result: %d, query: %s\n", parse_result, buf);
         
         if (parse_result == ESP_OK)
         {
             esp_err_t key_result = httpd_query_key_value(buf, "action", action, sizeof(action));
-            log_i("Parse key result: %d, action: %s", key_result, action);
+            Serial.printf("[I] Parse key result: %d, action: %s\n", key_result, action);
             
             if (key_result == ESP_OK)
             {
                 if (strcmp(action, "start") == 0)
                 {
-                    log_i("Starting recording");
+                    Serial.printf("[I] Starting recording\n");
                     // Check if already recording
                     if (isRecording) {
-                        log_i("Already recording");
+                        Serial.printf("[I] Already recording\n");
                         httpd_resp_set_type(req, "text/plain");
                         httpd_resp_sendstr(req, "Already recording");
                         free(buf);
@@ -430,7 +474,7 @@ static esp_err_t record_handler(httpd_req_t *req)
                     {
                         isRecording = true;
                         recordingStartTime = millis();
-                        log_i("Started recording to %s", uniqueFilePath.c_str());
+                        Serial.printf("[I] Started recording to %s\n", uniqueFilePath.c_str());
                         Serial.printf("Started recording to %s\r\n", uniqueFilePath.c_str()); // Added for serial output
                         xTaskCreatePinnedToCore(recordTask, "recordTask", 4096, NULL, 1, &recordTaskHandle, 1);
                         httpd_resp_set_type(req, "text/plain");
@@ -438,14 +482,14 @@ static esp_err_t record_handler(httpd_req_t *req)
                     }
                     else
                     {
-                        log_e("Failed to open file for writing");
+                        Serial.printf("[E] Failed to open file for writing\n");
                         httpd_resp_set_type(req, "text/plain");
                         httpd_resp_sendstr(req, "Failed to open file for recording");
                     }
                 }
                 else if (strcmp(action, "stop") == 0)
                 {
-                    log_i("Stopping recording");
+                    Serial.printf("[I] Stopping recording\n");
                     // Stop recording
                     if (isRecording) {
                         isRecording = false;
@@ -456,36 +500,36 @@ static esp_err_t record_handler(httpd_req_t *req)
                         // Verify video was recorded by checking the file size
                         File checkFile = SD_MMC.open(videoFilePath, FILE_READ);
                         if (checkFile) {
-                            log_i("Recorded video size: %d bytes", checkFile.size());
+                            Serial.printf("[I] Recorded video size: %d bytes\n", checkFile.size());
                             checkFile.close();
                         } else {
-                            log_e("Unable to open video file for verification");
+                            Serial.printf("[E] Unable to open video file for verification\n");
                         }
                         httpd_resp_set_type(req, "text/plain");
                         httpd_resp_sendstr(req, "Recording stopped");
                     } else {
-                        log_i("Not recording");
+                        Serial.printf("[I] Not recording\n");
                         httpd_resp_set_type(req, "text/plain");
                         httpd_resp_sendstr(req, "Not recording");
                     }
                 }
                 else
                 {
-                    log_i("Unknown action: %s", action);
+                    Serial.printf("[I] Unknown action: %s\n", action);
                     httpd_resp_set_type(req, "text/plain");
                     httpd_resp_sendstr(req, "Unknown action");
                 }
             }
             else
             {
-                log_i("Action parameter not found");
+                Serial.printf("[I] Action parameter not found\n");
                 httpd_resp_set_type(req, "text/plain");
                 httpd_resp_sendstr(req, "Action parameter missing");
             }
         }
         else 
         {
-            log_e("Failed to parse URL query");
+            Serial.printf("[E] Failed to parse URL query\n");
             httpd_resp_set_type(req, "text/plain");
             httpd_resp_sendstr(req, "Failed to parse URL query");
         }
@@ -531,7 +575,7 @@ static esp_err_t xclk_handler(httpd_req_t *req)
 {
     // Set a fixed default XCLK value instead of parsing from request
     int xclk = 20; // Set a fixed value of 20 MHz for the XCLK
-    log_i("Setting fixed XCLK: %d MHz", xclk);
+    Serial.printf("[I] Setting fixed XCLK: %d MHz\n", xclk);
 
     sensor_t *s = esp_camera_sensor_get();
     int res = s->set_xclk(s, LEDC_TIMER_0, xclk);
@@ -547,14 +591,34 @@ static esp_err_t xclk_handler(httpd_req_t *req)
 
 void startCameraServer()
 {
+    // Redirect ESP-IDF log output to Arduino Serial
+    redirect_esp_log_to_serial();
+
+    // NTP time sync initialization
+    if (!sntp_enabled()) {
+        sntp_setoperatingmode(SNTP_OPMODE_POLL);
+        sntp_setservername(0, (char*)"ntp.aliyun.com");
+        sntp_setservername(1, (char*)"pool.ntp.org");
+        sntp_init();
+    }
+
+    // Wait for time to be set (max 5s)
+    time_t now = 0;
+    struct tm timeinfo = { 0 };
+    int retry = 0;
+    const int retry_count = 10;
+    while (timeinfo.tm_year < (2016 - 1900) && ++retry < retry_count) {
+        Serial.printf("[I] Waiting for system time to be set... (%d/%d)\n", retry, retry_count);
+        vTaskDelay(500 / portTICK_PERIOD_MS);
+        time(&now);
+        localtime_r(&now, &timeinfo);
+    }
+
     // Initialize SD Card
     if (!initSDCard())
     {
-        log_e("Failed to initialize SD card - recording will be disabled");
+        Serial.printf("[E] Failed to initialize SD card - recording will be disabled\n");
     }
-    
-    // Initialize MPU6050
-    initializeMPU();
 
     httpd_config_t config = HTTPD_DEFAULT_CONFIG();
     config.max_uri_handlers = 16;
@@ -602,16 +666,16 @@ void startCameraServer()
 
     ra_filter_init(&ra_filter, 20);
 
-    log_i("Starting web server on port: '%d'", config.server_port);
+    Serial.printf("[I] Starting web server on port: '%d'\n", config.server_port);
     if (httpd_start(&camera_httpd, &config) == ESP_OK)
     {
         httpd_register_uri_handler(camera_httpd, &index_uri);  // Register index handler
         httpd_register_uri_handler(camera_httpd, &xclk_uri);
         httpd_register_uri_handler(camera_httpd, &record_uri); // Register record handler
         httpd_register_uri_handler(camera_httpd, &mpu_toggle_uri); // Register MPU control handler
-        log_i("Camera server started successfully");
+        Serial.printf("[I] Camera server started successfully\n");
     } else {
-        log_e("Failed to start camera server");
+        Serial.printf("[E] Failed to start camera server\n");
     }
 
 }
@@ -626,6 +690,6 @@ void setupLedFlash(int pin)
     // Initialize with LED off
     ledcWrite(8, 0);
 #else
-    log_i("LED flash is disabled -> CONFIG_LED_ILLUMINATOR_ENABLED = 0");
+    Serial.printf("[I] LED flash is disabled -> CONFIG_LED_ILLUMINATOR_ENABLED = 0\n");
 #endif
 }

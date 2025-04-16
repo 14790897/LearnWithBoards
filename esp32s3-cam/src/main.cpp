@@ -49,6 +49,8 @@ void setup()
 {
     Serial.begin(115200);
     Serial.setDebugOutput(true);
+    esp_log_level_set("*", ESP_LOG_INFO); // "*" 表示所有标签
+
     Serial.println();
 
     camera_config_t config;
