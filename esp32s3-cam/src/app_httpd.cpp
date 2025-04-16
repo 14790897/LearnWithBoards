@@ -81,6 +81,10 @@ static TaskHandle_t recordTaskHandle = NULL;
 // Declare external variable for MPU control
 extern bool enableMPU;
 
+// FPS control variables
+int targetFPS = 30; // Default target FPS
+int minFrameTimeMs = 1000 / targetFPS; // Minimum time between frames in milliseconds
+
 // HTML page with recording controls
 static const char RECORDING_CONTROL_HTML[] = R"rawliteral(
 <!DOCTYPE html>
@@ -131,10 +135,24 @@ static const char RECORDING_CONTROL_HTML[] = R"rawliteral(
         <a href="/record?action=stop" class="button stop">Stop Recording</a>
     </div>
     <div id="status">Status: Ready</div>
+
+    <div style="margin: 20px 0;">
+        <label for="fps">FPS: </label>
+        <select id="fps" onchange="setFPS(this.value)">
+            <option value="10">10 FPS</option>
+            <option value="15">15 FPS</option>
+            <option value="20">20 FPS</option>
+            <option value="25">25 FPS</option>
+            <option value="30" selected>30 FPS</option>
+            <option value="60">60 FPS</option>
+        </select>
+        <span id="fpsStatus"></span>
+    </div>
+
     <div class="stream">
         <img src="/stream" width="640" height="480" />
     </div>
-    
+
     <script>
         // Simple function to update status
         async function checkStatus() {
@@ -142,10 +160,48 @@ static const char RECORDING_CONTROL_HTML[] = R"rawliteral(
             const status = await response.text();
             document.getElementById('status').innerText = status;
         }
-        
-        // Check status on load
-        window.onload = checkStatus;
-        
+
+        // Function to set FPS
+        async function setFPS(fps) {
+            const fpsStatus = document.getElementById('fpsStatus');
+            fpsStatus.innerText = 'Setting...';
+
+            try {
+                const response = await fetch(`/fps?value=${fps}`);
+                const result = await response.text();
+                fpsStatus.innerText = result;
+
+                // Clear the status after 3 seconds
+                setTimeout(() => {
+                    fpsStatus.innerText = '';
+                }, 3000);
+            } catch (error) {
+                fpsStatus.innerText = 'Error setting FPS';
+            }
+        }
+
+        // Check current FPS on load
+        async function getCurrentFPS() {
+            try {
+                const response = await fetch('/fps');
+                const result = await response.text();
+                // Extract the number from "Current FPS: XX"
+                const fpsMatch = result.match(/\d+/);
+                if (fpsMatch) {
+                    const currentFps = fpsMatch[0];
+                    document.getElementById('fps').value = currentFps;
+                }
+            } catch (error) {
+                console.error('Error getting current FPS:', error);
+            }
+        }
+
+        // Check status and FPS on load
+        window.onload = function() {
+            checkStatus();
+            getCurrentFPS();
+        };
+
         // Update status periodically
         setInterval(checkStatus, 5000);
     </script>
@@ -304,7 +360,7 @@ void recordTask(void *param) {
     // 直接使用最多6MB作为缓冲区（如果PSRAM足够）
     size_t buffer_size = psram_size > 6291456 ? 6291456 : (psram_size > 2097152 ? 2097152 : (psram_size > 131072 ? 131072 : (psram_size > 32768 ? 32768 : 4096)));
     uint8_t* temp_buffer = NULL;
-    
+
     if(psram_size > buffer_size) {
         temp_buffer = (uint8_t*)ps_malloc(buffer_size);
         Serial.printf("[I] Using PSRAM for video buffer, size: %d bytes\n", buffer_size);
@@ -315,22 +371,36 @@ void recordTask(void *param) {
         temp_buffer = (uint8_t*)malloc(buffer_size);
         Serial.printf("[I] Using heap for video buffer, size: %d bytes\n", buffer_size);
     }
-    
+
     if(!temp_buffer) {
         Serial.printf("[E] Failed to allocate video buffer\n");
         isRecording = false;
         vTaskDelete(NULL);
         return;
     }
-    
+
     size_t buffer_used = 0;
     int totalFrameCount = 0; // 总帧数
 
     unsigned long lastFpsMillis = millis();
     int lastFpsFrameCount = 0;
-    
+    unsigned long lastFrameTime = 0; // Track time of last frame capture
+
     while (isRecording) {
-        uint32_t frame_start = millis(); // 记录帧开始时间
+        // FPS control - calculate time since last frame
+        unsigned long currentTime = millis();
+        unsigned long elapsedTime = currentTime - lastFrameTime;
+
+        // If we need to wait to maintain the target FPS
+        if (elapsedTime < minFrameTimeMs) {
+            // Wait the remaining time to achieve target FPS
+            delay(minFrameTimeMs - elapsedTime);
+            currentTime = millis(); // Update current time after delay
+        }
+
+        // Record the time before capturing the frame
+        lastFrameTime = currentTime;
+
         camera_fb_t *fb = esp_camera_fb_get();
         if (fb) {
             // Read MPU data only if enabled, otherwise fill with zeros
@@ -339,11 +409,11 @@ void recordTask(void *param) {
                 readMPUData();
                 mpu_data = getMPUData();
             }
-            
+
             uint64_t timestamp = esp_timer_get_time();
             // Store frame size, timestamp, and MPU data
             size_t data_size = sizeof(timestamp) + sizeof(uint32_t) + fb->len + (enableMPU ? sizeof(MPUData) : 0);
-            
+
             // If adding this frame would exceed buffer, flush first
             if (buffer_used + data_size > buffer_size) {
                 if (buffer_used > 0) {
@@ -351,7 +421,7 @@ void recordTask(void *param) {
                     buffer_used = 0;
                 }
             }
-            
+
             // If frame is too large for buffer, write directly
             if (data_size > buffer_size) {
                 videoFile.write((uint8_t *)&timestamp, sizeof(timestamp));
@@ -377,7 +447,7 @@ void recordTask(void *param) {
                 memcpy(temp_buffer + buffer_used, fb->buf, fb->len);
                 buffer_used += fb->len;
             }
-            
+
             totalFrameCount++;
             lastFpsFrameCount++;
             esp_camera_fb_return(fb);
@@ -389,8 +459,8 @@ void recordTask(void *param) {
                 lastFpsFrameCount = 0;
                 lastFpsMillis = nowFpsMillis;
             }
-            
-            // Flush every ~2 seconds以减少写入频率
+
+            // Flush every ~2 seconds to减少写入频率
             static uint32_t last_flush = 0;
             uint32_t now = millis();
             if (now - last_flush > 2000) {
@@ -402,21 +472,15 @@ void recordTask(void *param) {
                 last_flush = now;
             }
         }
-        // 固定帧率控制（如10fps，帧间隔100ms）
-        const uint32_t target_frame_interval = 100; // 单位: ms, 10fps
-        uint32_t frame_time = millis() - frame_start;
-        if (frame_time < target_frame_interval) {
-            vTaskDelay((target_frame_interval - frame_time) / portTICK_PERIOD_MS);
-        }
     }
-    
+
     // Final flush of any remaining data
     if (buffer_used > 0) {
         videoFile.write(temp_buffer, buffer_used);
     }
     videoFile.flush();
     Serial.printf("[I] Total frames saved: %d\n", totalFrameCount);
-    
+
     // Free the buffer
     free(temp_buffer);
     vTaskDelete(NULL);
@@ -426,14 +490,14 @@ void recordTask(void *param) {
 static esp_err_t record_handler(httpd_req_t *req)
 {
     Serial.printf("[I] Record handler called\n");
-    
+
     char *buf = NULL;
     char action[32] = {0}; // Initialize to zeros
 
     // Parse query parameters
     size_t buf_len = httpd_req_get_url_query_len(req);
     Serial.printf("[I] Query length: %d\n", buf_len);
-    
+
     if (buf_len > 0)
     {
         buf = (char *)malloc(buf_len + 1);
@@ -442,15 +506,15 @@ static esp_err_t record_handler(httpd_req_t *req)
             httpd_resp_send_500(req);
             return ESP_FAIL;
         }
-        
+
         esp_err_t parse_result = httpd_req_get_url_query_str(req, buf, buf_len + 1);
         Serial.printf("[I] Parse query result: %d, query: %s\n", parse_result, buf);
-        
+
         if (parse_result == ESP_OK)
         {
             esp_err_t key_result = httpd_query_key_value(buf, "action", action, sizeof(action));
             Serial.printf("[I] Parse key result: %d, action: %s\n", key_result, action);
-            
+
             if (key_result == ESP_OK)
             {
                 if (strcmp(action, "start") == 0)
@@ -527,7 +591,7 @@ static esp_err_t record_handler(httpd_req_t *req)
                 httpd_resp_sendstr(req, "Action parameter missing");
             }
         }
-        else 
+        else
         {
             Serial.printf("[E] Failed to parse URL query\n");
             httpd_resp_set_type(req, "text/plain");
@@ -586,6 +650,36 @@ static esp_err_t xclk_handler(httpd_req_t *req)
 
     httpd_resp_set_hdr(req, "Access-Control-Allow-Origin", "*");
     return httpd_resp_send(req, NULL, 0);
+}
+
+// Handler for setting FPS
+static esp_err_t fps_handler(httpd_req_t *req)
+{
+    char query[32] = {0};
+    char value[8] = {0};
+    bool changed = false;
+
+    if (httpd_req_get_url_query_str(req, query, sizeof(query)) == ESP_OK) {
+        if (httpd_query_key_value(query, "value", value, sizeof(value)) == ESP_OK) {
+            int fps = atoi(value);
+            if (fps > 0) {
+                setTargetFPS(fps);
+                changed = true;
+            }
+        }
+    }
+
+    httpd_resp_set_type(req, "text/plain");
+    if (changed) {
+        httpd_resp_sendstr(req, "FPS updated");
+    } else {
+        char resp[64];
+        snprintf(resp, sizeof(resp), "Current FPS: %d", targetFPS);
+        httpd_resp_sendstr(req, resp);
+    }
+
+    httpd_resp_set_hdr(req, "Access-Control-Allow-Origin", "*");
+    return ESP_OK;
 }
 
 
@@ -664,7 +758,17 @@ void startCameraServer()
         .user_ctx = NULL
     };
 
+    httpd_uri_t fps_uri = {
+        .uri = "/fps",
+        .method = HTTP_GET,
+        .handler = fps_handler,
+        .user_ctx = NULL
+    };
+
     ra_filter_init(&ra_filter, 20);
+
+    // Set initial FPS
+    setTargetFPS(30); // Default to 30 FPS
 
     Serial.printf("[I] Starting web server on port: '%d'\n", config.server_port);
     if (httpd_start(&camera_httpd, &config) == ESP_OK)
@@ -673,11 +777,22 @@ void startCameraServer()
         httpd_register_uri_handler(camera_httpd, &xclk_uri);
         httpd_register_uri_handler(camera_httpd, &record_uri); // Register record handler
         httpd_register_uri_handler(camera_httpd, &mpu_toggle_uri); // Register MPU control handler
+        httpd_register_uri_handler(camera_httpd, &fps_uri); // Register FPS control handler
         Serial.printf("[I] Camera server started successfully\n");
     } else {
         Serial.printf("[E] Failed to start camera server\n");
     }
 
+}
+
+// Function to set the target FPS
+void setTargetFPS(int fps) {
+    if (fps < 1) fps = 1; // Prevent division by zero
+    if (fps > 60) fps = 60; // Cap at 60 FPS to be reasonable
+
+    targetFPS = fps;
+    minFrameTimeMs = 1000 / targetFPS;
+    Serial.printf("[I] Target FPS set to %d (frame interval: %d ms)\n", targetFPS, minFrameTimeMs);
 }
 
 void setupLedFlash(int pin)

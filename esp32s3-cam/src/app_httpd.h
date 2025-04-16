@@ -6,6 +6,7 @@ extern "C" {
 #endif
 
 void startCameraServer();
+void setTargetFPS(int fps);
 
 #ifdef __cplusplus
 }
