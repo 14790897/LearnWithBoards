@@ -75,7 +75,7 @@ void setup()
     config.xclk_freq_hz = 20000000;
     config.frame_size = FRAMESIZE_UXGA;   //  FRAMESIZE_UXGA
     // config.frame_size = FRAMESIZE_QVGA; // for OV7670
-    config.pixel_format = PIXFORMAT_JPEG; // for streaming  
+    config.pixel_format = PIXFORMAT_JPEG; // for streaming
     // config.pixel_format = PIXFORMAT_RGB565; // for face detection/recognition or OV7670
     config.grab_mode = CAMERA_GRAB_WHEN_EMPTY;
     config.fb_location = CAMERA_FB_IN_PSRAM;
@@ -123,9 +123,13 @@ void setup()
 
     sensor_t *s = esp_camera_sensor_get();
     // initial sensors are flipped vertically and colors are a bit saturated
-    if (s->id.PID == OV3660_PID)
+    if (s->id.PID == OV3660_PID ||
+        s->id.PID == OV5640_PID) // 增加对OV5640的支持
     {
-        s->set_vflip(s, 1);       // flip it back
+        // 默认不进行翻转，由用户通过Web界面控制
+        s->set_vflip(s, 0);   // 垂直翻转关闭
+        s->set_hmirror(s, 0); // 水平镜像关闭
+
         s->set_brightness(s, 1);  // up the brightness just a bit
         s->set_saturation(s, -2); // lower the saturation
     }
@@ -165,7 +169,7 @@ void setup()
     const char* hostname = "esp32cam";  // The mDNS hostname
     if (MDNS.begin(hostname)) {
         Serial.printf("mDNS responder started: http://%s.local\n", hostname);
-        
+
         // Add service to mDNS
         MDNS.addService("http", "tcp", 80);
     } else {

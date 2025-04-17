@@ -1,0 +1,234 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>ESP32 WebSocket 连接测试</title>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      max-width: 800px;
+      margin: 0 auto;
+      padding: 20px;
+    }
+    .status {
+      padding: 10px;
+      margin: 10px 0;
+      border-radius: 5px;
+    }
+    .connected {
+      background-color: #d4edda;
+      color: #155724;
+    }
+    .disconnected {
+      background-color: #f8d7da;
+      color: #721c24;
+    }
+    .connecting {
+      background-color: #fff3cd;
+      color: #856404;
+    }
+    button {
+      padding: 8px 16px;
+      margin: 5px;
+      cursor: pointer;
+    }
+    #pingResults {
+      margin-top: 20px;
+      font-family: monospace;
+    }
+    .ping-item {
+      margin: 5px 0;
+    }
+    .ping-success {
+      color: green;
+    }
+    .ping-fail {
+      color: red;
+    }
+  </style>
+</head>
+<body>
+  <h1>ESP32 WebSocket 连接测试工具</h1>
+  
+  <div id="connectionStatus" class="status disconnected">
+    未连接
+  </div>
+  
+  <div>
+    <label for="ipAddress">ESP32 IP 地址:</label>
+    <input type="text" id="ipAddress" value="192.168.0.10" />
+    <label for="port">端口:</label>
+    <input type="number" id="port" value="80" style="width: 60px;" />
+    <button id="connectBtn">连接</button>
+    <button id="disconnectBtn" disabled>断开</button>
+  </div>
+  
+  <div>
+    <button id="pingBtn" disabled>Ping 测试</button>
+    <button id="clearBtn">清除日志</button>
+  </div>
+  
+  <div id="pingResults"></div>
+  
+  <script>
+    let socket;
+    let pingInterval;
+    const statusDiv = document.getElementById('connectionStatus');
+    const connectBtn = document.getElementById('connectBtn');
+    const disconnectBtn = document.getElementById('disconnectBtn');
+    const pingBtn = document.getElementById('pingBtn');
+    const clearBtn = document.getElementById('clearBtn');
+    const pingResults = document.getElementById('pingResults');
+    const ipInput = document.getElementById('ipAddress');
+    const portInput = document.getElementById('port');
+    
+    // 连接按钮
+    connectBtn.addEventListener('click', () => {
+      const ip = ipInput.value.trim();
+      const port = portInput.value.trim();
+      
+      if (!ip) {
+        alert('请输入有效的 IP 地址');
+        return;
+      }
+      
+      statusDiv.className = 'status connecting';
+      statusDiv.textContent = '正在连接...';
+      
+      try {
+        socket = new WebSocket(`ws://${ip}:${port}/ws`);
+        
+        socket.onopen = () => {
+          statusDiv.className = 'status connected';
+          statusDiv.textContent = '已连接';
+          connectBtn.disabled = true;
+          disconnectBtn.disabled = false;
+          pingBtn.disabled = false;
+          
+          // 添加连接成功日志
+          addLogEntry(`连接成功: ws://${ip}:${port}/ws`, true);
+        };
+        
+        socket.onclose = () => {
+          statusDiv.className = 'status disconnected';
+          statusDiv.textContent = '已断开连接';
+          connectBtn.disabled = false;
+          disconnectBtn.disabled = true;
+          pingBtn.disabled = true;
+          clearInterval(pingInterval);
+          
+          // 添加断开连接日志
+          addLogEntry('连接已关闭', false);
+        };
+        
+        socket.onerror = (error) => {
+          statusDiv.className = 'status disconnected';
+          statusDiv.textContent = '连接错误';
+          connectBtn.disabled = false;
+          disconnectBtn.disabled = true;
+          pingBtn.disabled = true;
+          
+          // 添加错误日志
+          addLogEntry(`连接错误: ${error.message || '未知错误'}`, false);
+        };
+        
+        socket.onmessage = (event) => {
+          // 添加收到消息日志
+          addLogEntry(`收到消息: ${event.data}`, true);
+        };
+      } catch (error) {
+        statusDiv.className = 'status disconnected';
+        statusDiv.textContent = '连接失败';
+        addLogEntry(`连接失败: ${error.message}`, false);
+      }
+    });
+    
+    // 断开按钮
+    disconnectBtn.addEventListener('click', () => {
+      if (socket) {
+        socket.close();
+        clearInterval(pingInterval);
+      }
+    });
+    
+    // Ping 测试按钮
+    pingBtn.addEventListener('click', () => {
+      if (socket && socket.readyState === WebSocket.OPEN) {
+        startPingTest();
+      } else {
+        alert('WebSocket 未连接');
+      }
+    });
+    
+    // 清除日志按钮
+    clearBtn.addEventListener('click', () => {
+      pingResults.innerHTML = '';
+    });
+    
+    // 添加日志条目
+    function addLogEntry(message, success) {
+      const timestamp = new Date().toLocaleTimeString();
+      const entry = document.createElement('div');
+      entry.className = `ping-item ${success ? 'ping-success' : 'ping-fail'}`;
+      entry.textContent = `[${timestamp}] ${message}`;
+      pingResults.appendChild(entry);
+      pingResults.scrollTop = pingResults.scrollHeight;
+    }
+    
+    // 开始 Ping 测试
+    function startPingTest() {
+      let pingCount = 0;
+      let successCount = 0;
+      let startTime;
+      
+      addLogEntry('开始 Ping 测试 (10次)', true);
+      
+      // 清除之前的 interval
+      clearInterval(pingInterval);
+      
+      // 创建新的 interval
+      pingInterval = setInterval(() => {
+        if (pingCount >= 10) {
+          clearInterval(pingInterval);
+          addLogEntry(`Ping 测试完成: 成功率 ${successCount}/10 (${(successCount/10*100).toFixed(0)}%)`, successCount === 10);
+          return;
+        }
+        
+        if (socket.readyState === WebSocket.OPEN) {
+          startTime = Date.now();
+          
+          // 发送一个简单的二进制数据包
+          const testData = new Uint8Array(10);
+          for (let i = 0; i < 10; i++) {
+            testData[i] = i;
+          }
+          
+          socket.send(testData);
+          
+          // 设置超时
+          const timeoutId = setTimeout(() => {
+            addLogEntry(`Ping #${pingCount+1}: 超时`, false);
+            pingCount++;
+          }, 2000);
+          
+          // 一次性消息处理器
+          const messageHandler = (event) => {
+            clearTimeout(timeoutId);
+            const latency = Date.now() - startTime;
+            addLogEntry(`Ping #${pingCount+1}: ${latency}ms`, true);
+            successCount++;
+            pingCount++;
+            socket.removeEventListener('message', messageHandler);
+          };
+          
+          socket.addEventListener('message', messageHandler);
+        } else {
+          clearInterval(pingInterval);
+          addLogEntry('Ping 测试中断: 连接已关闭', false);
+        }
+      }, 1000);
+    }
+  </script>
+</body>
+</html>

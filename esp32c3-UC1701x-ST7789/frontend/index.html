@@ -7,14 +7,25 @@
 </head>
 <body>
   <h1>上传视频并发送到 ESP32</h1>
+  <div style="margin-bottom: 10px;">
+    <span>连接状态: </span>
+    <span id="status" style="color: red;">未连接</span>
+    <span id="queueStatus" style="margin-left: 20px;">队列: 0/5</span>
+  </div>
   <input type="file" id="videoInput" accept="video/*">
   <button id="processButton">处理并发送</button>
+  <div style="margin-top: 10px;">
+    <label for="progressBar">处理进度:</label>
+    <progress id="progressBar" value="0" max="100" style="width: 100%;"></progress>
+    <span id="progressText">0%</span>
+  </div>
   <script>
-    const ESP32_IP = "ws://192.168.0.10"; // WebSocket 地址
+    const ESP32_IP = "ws://192.168.0.10:80"; // WebSocket 地址，明确指定端口
     const CANVAS_WIDTH = 240;
     const CANVAS_HEIGHT = 240;
-    const FRAME_INTERVAL = 200; // 5 帧/秒
+    const FRAME_INTERVAL = 100; // 增加帧间隔，减轻传输压力
     const THRESHOLD = 128;
+    const MAX_QUEUE_SIZE = 10; // 最大队列大小，防止内存溢出
 
     const videoInput = document.getElementById("videoInput");
     const processButton = document.getElementById("processButton");
@@ -32,10 +43,25 @@
       video.src = videoURL;
       video.crossOrigin = "anonymous";
       video.muted = true;
-      video.play();
 
       socket = new WebSocket(`${ESP32_IP}/ws`);
-      socket.onopen = () => console.log("WebSocket 连接成功");
+      socket.onopen = () => {
+        console.log("WebSocket 连接成功");
+        document.getElementById("status").textContent = "已连接";
+        document.getElementById("status").style.color = "green";
+      };
+
+      socket.onclose = () => {
+        console.log("WebSocket 连接关闭");
+        document.getElementById("status").textContent = "未连接";
+        document.getElementById("status").style.color = "red";
+      };
+
+      socket.onerror = (error) => {
+        console.error("WebSocket 错误:", error);
+        document.getElementById("status").textContent = "连接错误";
+        document.getElementById("status").style.color = "red";
+      };
 
       video.addEventListener("loadeddata", async () => {
         const canvas = document.createElement("canvas");
@@ -43,17 +69,61 @@
         canvas.width = CANVAS_WIDTH;
         canvas.height = CANVAS_HEIGHT;
 
-        while (video.currentTime < video.duration) {
-          ctx.drawImage(video, 0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
-          const imageData = ctx.getImageData(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
-          const binaryData = processFrame(imageData);
-          if (socket.readyState === WebSocket.OPEN) {
-            socket.send(binaryData.buffer);
+        let queueSize = 0;
+        const progressBar = document.getElementById("progressBar");
+        const totalDuration = video.duration * 1000; // 总时长（毫秒）
+        let startTime = null;
+        let lastFrameTime = 0;
+
+        // 开始播放视频
+        video.play();
+
+        // 使用requestAnimationFrame以视频原始速度处理帧
+        function processNextFrame(timestamp) {
+          if (!startTime) startTime = timestamp;
+          const elapsedTime = timestamp - startTime; // 从开始处理以来经过的毫秒数
+          
+          // 计算进度
+          const progress = Math.min(100, Math.floor((elapsedTime / totalDuration) * 100));
+          progressBar.value = progress;
+          document.getElementById("progressText").textContent = `${progress}%`;
+          
+          // 检查当前视频时间，确保已经过去了足够的时间（按FRAME_INTERVAL）
+          if (timestamp - lastFrameTime >= FRAME_INTERVAL && queueSize < MAX_QUEUE_SIZE) {
+            // 仅在这个条件满足时才处理帧
+            if (!video.ended && !video.paused) {
+              ctx.drawImage(video, 0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
+              const imageData = ctx.getImageData(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
+              const binaryData = processFrame(imageData);
+              
+              if (socket.readyState === WebSocket.OPEN) {
+                socket.send(binaryData.buffer);
+                queueSize++;
+                document.getElementById("queueStatus").textContent = `队列: ${queueSize}/${MAX_QUEUE_SIZE}`;
+              }
+              
+              lastFrameTime = timestamp;
+            }
           }
-          video.currentTime += FRAME_INTERVAL / 1000;
-          await delay(FRAME_INTERVAL);
+          
+          // 如果视频未结束，继续处理
+          if (!video.ended && elapsedTime < totalDuration) {
+            requestAnimationFrame(processNextFrame);
+          } else if (video.ended || elapsedTime >= totalDuration) {
+            alert("视频已发送到 ESP32！");
+          }
         }
-        alert("视频已发送到 ESP32！");
+        
+        // 启动帧处理
+        requestAnimationFrame(processNextFrame);
+        
+        // 当服务器确认接收到数据时减少队列大小
+        socket.onmessage = (event) => {
+          if (event.data === "ACK") {
+            queueSize = Math.max(0, queueSize - 1);
+            document.getElementById("queueStatus").textContent = `队列: ${queueSize}/${MAX_QUEUE_SIZE}`;
+          }
+        };
       });
     });
 
@@ -62,10 +132,10 @@
       for (let i = 0, byteIndex = 0; i < imageData.data.length; i += 4) {
         const avg = (imageData.data[i] + imageData.data[i + 1] + imageData.data[i + 2]) / 3;
         const bit = avg > THRESHOLD ? 1 : 0;
-        const pixelIndex = i / 4;
-        const bytePos = Math.floor(pixelIndex / 8);
+        const pixelIndex = i / 4; //imageData.data存储的是一维数组
+        const bytePos = Math.floor(pixelIndex / 8); //要把八个单像素的值压缩成一个字节
         const bitPos = 7 - (pixelIndex % 8);
-        binaryData[bytePos] |= (bit << bitPos);
+        binaryData[bytePos] |= (bit << bitPos);//这里面存储的是二进制的字节
       }
       return binaryData;
     }

@@ -4,7 +4,7 @@
 
 ## 演示视频
 
-https://www.bilibili.com/video/BV1hmZdYhEuz/
+https://www.bilibili.com/video/BV1g2R2Y8Esm/
 
 ## 功能特性
 
@@ -17,6 +17,8 @@ https://www.bilibili.com/video/BV1hmZdYhEuz/
 - **显示模式**：
   - 帧显示模式：接收并显示视频帧。
 - **高效渲染**：使用批量像素绘制优化显示性能。
+- **诊断模式**：内置诊断功能，帮助排查连接和显示问题。
+- **帧率控制**：可通过诊断模式动态调整帧率限制。
 
 ## 硬件要求
 
@@ -26,6 +28,7 @@ https://www.bilibili.com/video/BV1hmZdYhEuz/
   - CS: GPIO 7
   - DC: GPIO 6
   - RST: GPIO 10
+  - SDA, SCL: SPI 接口
 - **WiFi 网络**：需要连接到与前端相同的局域网。
 
 ## 软件依赖
@@ -50,6 +53,7 @@ cd 目标目录
 ### 2. 配置 WiFi 凭据
 
 - 创建 `src/secrets.h` 文件，添加你的 WiFi SSID 和密码：
+
   ```cpp
   #ifndef SECRETS_H
   #define SECRETS_H
@@ -95,10 +99,13 @@ cd 目标目录
 ### 4. 编译和上传固件
 
 - 通过串口上传：
+
   ```bash
   pio run -e esp32_serial -t upload
   ```
+
 - 或通过 OTA 上传（首次需串口上传）：
+
   ```bash
   pio run -e esp32_ota -t upload
   ```
@@ -106,14 +113,15 @@ cd 目标目录
 ### 5. 运行前端
 
 - 将 `frontend/index.html` 托管到本地服务器，或直接在浏览器打开（需支持 WebSocket）。
-- 确保前端的 `ESP32_IP`（默认为 `ws://192.168.0.10`）与 ESP32 的实际 IP 匹配。
+- 确保前端的 `ESP32_IP`（默认为 `ws://192.168.0.10:80`）与 ESP32 的实际 IP 匹配。
+- 也可以使用 `frontend/connection_test.html` 测试 WebSocket 连接。
 
 ## 使用方法
 
 ### 1. 启动设备
 
 - 上电后，ESP32 连接 WiFi 并显示 IP 地址（默认 `192.168.0.10`）。
-- 默认情况下，屏幕显示彩色矩形动画。
+- 默认情况下，屏幕显示 IP 地址。
 
 ### 2. 上传视频
 
@@ -125,7 +133,7 @@ cd 目标目录
 ### 3. 显示视频帧
 
 - ESP32 接收到帧数据后，屏幕显示二值化的视频帧。
-- 发送完成后，恢复矩形动画。
+- 界面上显示连接状态、队列状态和处理进度。
 
 ## 示例帧数据
 
@@ -137,25 +145,86 @@ cd 目标目录
 ## 注意事项
 
 - **内存**：ESP32 SRAM 需支持 57KB 的 `frameBuffer`，避免定义过多大数组。
-- **网络**：确保 ESP32 和前端在同一局域网，防火墙不阻挡 WebSocket（端口 81）。
+- **网络**：确保 ESP32 和前端在同一局域网，防火墙不阻挡 WebSocket（端口 80）。
 - **性能**：
   - 前端处理 240x240 帧可能较慢，建议测试短视频。
   - ESP32 显示大帧时可能有延迟，可降低帧率（调整 `FRAME_INTERVAL`）。
-- **调试**：通过串口监视器（115200 波特率）查看 WiFi 和 WebSocket 状态。
+- **调试**：
+  - 通过串口监视器（115200 波特率）查看 WiFi 和 WebSocket 状态。
+  - 使用诊断模式排查问题（输入 `diag` 进入）。
 
 ## 项目结构
 
-```
+```text
 esp32-st7789-video-display/
 ├── src/
 │   ├── main.cpp          ; ESP32 主程序
+│   ├── ST7789.cpp        ; ST7789 显示驱动和WebSocket处理
+│   ├── ST7789.h          ; ST7789 头文件
+│   ├── DiagnosticMode.cpp ; 诊断模式实现
+│   ├── DiagnosticMode.h   ; 诊断模式头文件
 │   └── secrets.h         ; WiFi 凭据（需手动创建）
 ├── frontend/
-│   └── index.html        ; 前端网页
+│   ├── index.html        ; 主前端界面
+│   └── connection_test.html ; 连接测试工具
 ├── platformio.ini        ; PlatformIO 配置文件
 └── README.md             ; 本文档
 ```
 
+## 诊断模式
+
+项目内置了强大的诊断模式，帮助排查各种问题：
+
+### 进入诊断模式
+
+1. 打开串口监视器（波特率 115200）
+2. 输入 `diag` 或 `diagnostic` 并发送
+3. 系统将显示诊断模式帮助信息
+
+### 可用诊断命令
+
+- `help` 或 `h` - 显示帮助信息
+- `status` 或 `s` - 显示系统状态（WiFi、内存、运行时间等）
+- `net` 或 `n` - 运行网络诊断测试
+- `display` 或 `d` - 运行显示测试
+- `limit on` 或 `lon` - 启用帧率限制
+- `limit off` 或 `loff` - 禁用帧率限制
+- `exit` 或 `x` - 退出诊断模式
+
+### 排查传输卡顿问题
+
+如果遇到传输卡顿问题，可以尝试：
+
+1. 进入诊断模式，使用 `status` 命令检查系统状态
+2. 使用 `net` 命令检查网络连接
+3. 尝试使用 `limit off` 命令关闭帧率限制
+4. 在前端增加 `FRAME_INTERVAL` 值，减少帧率
+5. 使用连接测试工具检查 WebSocket 连接稳定性
+
+## 故障排除
+
+### 传输卡顿问题
+
+如果遇到传输卡顿：
+
+1. 检查 WiFi 信号强度（使用诊断模式的 `status` 命令）
+2. 增加前端的 `FRAME_INTERVAL` 值（默认 200ms）
+3. 尝试关闭帧率限制（诊断模式中使用 `limit off`）
+4. 检查 ESP32 的可用内存（诊断模式中使用 `status`）
+
+### 连接问题
+
+如果无法连接：
+
+1. 确认 ESP32 的 IP 地址（启动时显示在屏幕上）
+2. 确保前端的 WebSocket URL 正确（默认 `ws://192.168.0.10:80`）
+3. 使用连接测试工具进行 Ping 测试
+4. 检查 WiFi 网络设置和防火墙
+
 ## 贡献
 
 欢迎提交 Issue 或 Pull Request，优化代码或添加新功能！
+
+## 许可
+
+[MIT License](LICENSE)
