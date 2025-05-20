@@ -1,0 +1,758 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <title>ESP32 AI Chat</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🤖</text></svg>">
+    <style>
+        :root {
+            --primary-color: #4361ee;
+            --primary-hover: #3a56d4;
+            --bg-color: #f8f9fa;
+            --chat-bg: #ffffff;
+            --user-msg-bg: #e7f3ff;
+            --ai-msg-bg: #f1f1f1;
+            --border-radius: 12px;
+            --box-shadow: 0 4px 20px rgba(0, 0, 0, 0.08);
+            --text-color: #333;
+            --light-text: #666;
+            --border-color: #e0e0e0;
+        }
+
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+
+        html, body {
+            width: 100%;
+            height: 100%;
+            margin: 0;
+            padding: 0;
+            overflow: hidden;
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            touch-action: manipulation;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            background-color: var(--bg-color);
+            color: var(--text-color);
+            line-height: 1.6;
+            padding-bottom: env(safe-area-inset-bottom);
+            overscroll-behavior: none; /* 防止iOS橡皮筋效果 */
+        }
+
+        .container {
+            max-width: 100%;
+            width: 100%;
+            height: 100vh; /* 使用视口高度 */
+            height: -webkit-fill-available; /* 适用于iOS Safari */
+            margin: 0;
+            padding: 10px;
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+            box-sizing: border-box;
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+        }
+
+        @media (min-width: 800px) {
+            .container {
+                max-width: 800px;
+                margin: 0 auto;
+                padding: 15px;
+                position: relative;
+                height: 100%;
+            }
+        }
+
+        .header {
+            text-align: center;
+            margin-bottom: 15px;
+            padding-bottom: 10px;
+            border-bottom: 1px solid var(--border-color);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            flex-shrink: 0;
+        }
+
+        @media (max-height: 600px) {
+            .header {
+                margin-bottom: 10px;
+                padding-bottom: 8px;
+            }
+        }
+
+        .header-title {
+            flex: 1;
+            text-align: center;
+        }
+
+        .header h1 {
+            font-size: 1.8rem;
+            color: var(--primary-color);
+            margin-bottom: 5px;
+        }
+
+        .header p {
+            color: var(--light-text);
+            font-size: 0.9rem;
+        }
+
+        .header-actions {
+            display: flex;
+            gap: 10px;
+        }
+
+        .icon-button {
+            background: none;
+            border: none;
+            color: var(--light-text);
+            cursor: pointer;
+            padding: 5px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            border-radius: 50%;
+            width: 36px;
+            height: 36px;
+            transition: background-color 0.3s;
+        }
+
+        .icon-button:hover {
+            background-color: rgba(0, 0, 0, 0.05);
+            color: var(--primary-color);
+        }
+
+        .icon-button svg {
+            width: 20px;
+            height: 20px;
+        }
+
+        .chat-container {
+            background-color: var(--chat-bg);
+            border-radius: var(--border-radius);
+            box-shadow: var(--box-shadow);
+            padding: 12px;
+            margin-bottom: 10px;
+            flex: 1;
+            min-height: 0; /* 确保flex子元素可以正确收缩 */
+            overflow-y: auto;
+            scroll-behavior: smooth;
+            -webkit-overflow-scrolling: touch; /* 在iOS上提供平滑滚动 */
+            max-height: calc(100vh - 150px); /* 限制最大高度，留出空间给其他元素 */
+            max-height: calc((var(--vh, 1vh) * 100) - 150px); /* 使用自定义变量 */
+        }
+
+        @media (min-width: 800px) {
+            .chat-container {
+                padding: 20px;
+                margin-bottom: 15px;
+            }
+        }
+
+        @media (max-height: 500px) {
+            .chat-container {
+                max-height: calc(100vh - 120px);
+                max-height: calc((var(--vh, 1vh) * 100) - 120px);
+                padding: 10px;
+                margin-bottom: 8px;
+            }
+        }
+
+        .message {
+            margin-bottom: 15px;
+            padding: 12px 16px;
+            border-radius: var(--border-radius);
+            max-width: 85%;
+            word-wrap: break-word;
+            position: relative;
+            animation: fadeIn 0.3s ease-in-out;
+        }
+
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(10px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+
+        .user-message {
+            background-color: var(--user-msg-bg);
+            margin-left: auto;
+            border-bottom-right-radius: 4px;
+            color: #0056b3;
+        }
+
+        .ai-message {
+            background-color: var(--ai-msg-bg);
+            margin-right: auto;
+            border-bottom-left-radius: 4px;
+        }
+
+        .message-time {
+            font-size: 0.7rem;
+            color: var(--light-text);
+            margin-top: 5px;
+            text-align: right;
+        }
+
+        .input-container {
+            display: flex;
+            gap: 10px;
+            position: relative;
+            margin-top: auto; /* 将输入区域推到底部 */
+            width: 100%;
+            flex-shrink: 0; /* 防止输入区域被压缩 */
+            padding-bottom: env(safe-area-inset-bottom, 0px); /* 适应全面屏 */
+        }
+
+        @media (max-height: 500px) {
+            .input-container {
+                gap: 6px;
+            }
+        }
+
+        #user-input {
+            flex: 1;
+            padding: 14px;
+            border: 1px solid var(--border-color);
+            border-radius: var(--border-radius);
+            font-size: 16px;
+            outline: none;
+            transition: border-color 0.3s, box-shadow 0.3s;
+        }
+
+        #user-input:focus {
+            border-color: var(--primary-color);
+            box-shadow: 0 0 0 3px rgba(67, 97, 238, 0.2);
+        }
+
+        button {
+            padding: 0 20px;
+            background-color: var(--primary-color);
+            color: white;
+            border: none;
+            border-radius: var(--border-radius);
+            cursor: pointer;
+            font-size: 16px;
+            font-weight: 500;
+            transition: background-color 0.3s;
+        }
+
+        button:hover {
+            background-color: var(--primary-hover);
+        }
+
+        button:active {
+            transform: translateY(1px);
+        }
+
+        .status {
+            text-align: center;
+            margin-top: 10px;
+            color: var(--light-text);
+            font-size: 0.9rem;
+            height: 20px;
+        }
+
+        .typing-indicator {
+            display: inline-block;
+        }
+
+        .typing-indicator span {
+            display: inline-block;
+            width: 8px;
+            height: 8px;
+            background-color: var(--light-text);
+            border-radius: 50%;
+            margin: 0 2px;
+            animation: typing 1.4s infinite ease-in-out;
+        }
+
+        .typing-indicator span:nth-child(1) { animation-delay: 0s; }
+        .typing-indicator span:nth-child(2) { animation-delay: 0.2s; }
+        .typing-indicator span:nth-child(3) { animation-delay: 0.4s; }
+
+        @keyframes typing {
+            0%, 60%, 100% { transform: translateY(0); }
+            30% { transform: translateY(-6px); }
+        }
+
+        .footer {
+            text-align: center;
+            margin-top: 15px;
+            font-size: 0.8rem;
+            color: var(--light-text);
+        }
+
+        /* 响应式设计 */
+        @media (max-width: 600px) {
+            body {
+                padding-bottom: max(env(safe-area-inset-bottom), 10px);
+            }
+
+            .container {
+                padding: 10px 15px;
+            }
+
+            .header {
+                margin-bottom: 10px;
+                padding-bottom: 10px;
+            }
+
+            .header h1 {
+                font-size: 1.5rem;
+            }
+
+            .header p {
+                font-size: 0.8rem;
+            }
+
+            .message {
+                max-width: 90%;
+                padding: 10px 12px;
+                margin-bottom: 10px;
+            }
+
+            #user-input {
+                padding: 12px;
+                font-size: 15px;
+            }
+
+            button {
+                padding: 0 15px;
+            }
+
+            .footer {
+                margin-top: 10px;
+                font-size: 0.7rem;
+            }
+        }
+
+        /* 深色模式支持 */
+        @media (prefers-color-scheme: dark) {
+            :root {
+                --bg-color: #121212;
+                --chat-bg: #1e1e1e;
+                --user-msg-bg: #2b4b7e;
+                --ai-msg-bg: #2a2a2a;
+                --text-color: #e0e0e0;
+                --light-text: #a0a0a0;
+                --border-color: #333;
+            }
+
+            .user-message {
+                color: #b3d9ff;
+            }
+        }
+
+        .desktop-only {
+            display: none;
+        }
+        @media (min-width: 600px) {
+            .desktop-only {
+                display: flex !important;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <div class="header-actions">
+                <button id="clear-history-btn" class="icon-button" title="清除历史记录">
+                    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <polyline points="3 6 5 6 21 6"></polyline>
+                        <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
+                    </svg>
+                </button>
+            </div>
+            <div class="header-title">
+                <h1>ESP32 AI Chat</h1>
+                <p>基于ESP32的智能聊天助手</p>
+            </div>
+            <div class="header-actions">
+                <!-- 预留空间，保持对称 -->
+                <button id="fullscreen-btn" class="icon-button desktop-only" title="全屏显示/退出全屏">
+                    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <path d="M8 3H5a2 2 0 0 0-2 2v3"></path>
+                        <path d="M16 3h3a2 2 0 0 1 2 2v3"></path>
+                        <path d="M8 21H5a2 2 0 0 1-2-2v-3"></path>
+                        <path d="M16 21h3a2 2 0 0 0 2-2v-3"></path>
+                    </svg>
+                </button>
+            </div>
+        </div>
+        <div class="chat-container" id="chat-container">
+            <div class="message ai-message">
+                你好！有什么我可以帮助你的吗？
+                <div class="message-time">刚刚</div>
+            </div>
+        </div>
+        <div class="input-container">
+            <input type="text" id="user-input" placeholder="输入你的问题..." autocomplete="off">
+            <button onclick="sendMessage()">发送</button>
+        </div>
+        <div class="status" id="status"></div>
+        <div class="footer">
+            ESP32 AI Chat &copy; <span id="current-year"></span>
+        </div>
+    </div>
+
+    <script>
+        // 设置当前年份
+        document.getElementById("current-year").textContent = new Date().getFullYear();
+
+        // 处理移动设备上的全屏问题
+        function handleFullScreen() {
+            // 处理iOS上的虚拟键盘问题
+            const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) && !window.MSStream;
+            const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
+
+            // 设置视口高度
+            function setViewportHeight() {
+                // 首先设置一个小的延迟，等待浏览器完成渲染
+                setTimeout(() => {
+                    const vh = window.innerHeight * 0.01;
+                    document.documentElement.style.setProperty('--vh', `${vh}px`);
+
+                    document.body.style.height = window.innerHeight + 'px';
+                    document.documentElement.style.height = window.innerHeight + 'px';
+
+                    // 滚动到底部
+                    const chatContainer = document.getElementById("chat-container");
+                    if (chatContainer) {
+                        chatContainer.scrollTop = chatContainer.scrollHeight;
+                    }
+                }, 100);
+            }
+
+            // 初始设置
+            setViewportHeight();
+
+            // 监听调整大小事件
+            window.addEventListener('resize', setViewportHeight);
+            window.addEventListener('orientationchange', setViewportHeight);
+
+            // 尝试请求全屏模式
+            function requestFullScreen() {
+                // 检查各种浏览器的全屏 API
+                const docEl = document.documentElement;
+
+                const requestFullscreen = docEl.requestFullscreen ||
+                                        docEl.webkitRequestFullscreen ||
+                                        docEl.mozRequestFullScreen ||
+                                        docEl.msRequestFullscreen;
+
+                if (requestFullscreen) {
+                    requestFullscreen.call(docEl).catch(err => {
+                        console.log('Error attempting to enable full-screen mode:', err);
+                    });
+                }
+
+                // 对于 iOS 设备，使用更多技巧
+                if (isIOS) {
+                    // 添加全屏样式
+                    document.body.classList.add('ios-fullscreen');
+                    // 隐藏地址栏
+                    window.scrollTo(0, 0);
+                }
+            }
+
+            // 当用户点击时尝试进入全屏
+            if (isMobile) {
+                document.body.addEventListener('click', function() {
+                    requestFullScreen();
+                }, { once: true });
+
+                // 对于某些浏览器，需要用户手动触发全屏
+                const fullscreenButton = document.createElement('button');
+                fullscreenButton.innerHTML = '全屏显示';
+                fullscreenButton.className = 'fullscreen-button';
+                fullscreenButton.style.position = 'fixed';
+                fullscreenButton.style.bottom = '10px';
+                fullscreenButton.style.right = '10px';
+                fullscreenButton.style.zIndex = '1000';
+                fullscreenButton.style.padding = '8px 12px';
+                fullscreenButton.style.background = 'rgba(0,0,0,0.5)';
+                fullscreenButton.style.color = 'white';
+                fullscreenButton.style.border = 'none';
+                fullscreenButton.style.borderRadius = '4px';
+                fullscreenButton.style.display = 'none'; // 默认隐藏
+
+                fullscreenButton.addEventListener('click', function() {
+                    requestFullScreen();
+                    this.style.display = 'none';
+                });
+
+                document.body.appendChild(fullscreenButton);
+
+                // 3秒后显示全屏按钮，如果还没有进入全屏
+                setTimeout(() => {
+                    if (!document.fullscreenElement &&
+                        !document.webkitFullscreenElement &&
+                        !document.mozFullScreenElement) {
+                        fullscreenButton.style.display = 'block';
+                    }
+                }, 3000);
+            }
+        }
+
+        // 添加全屏相关的CSS
+        document.head.insertAdjacentHTML('beforeend', `
+            <style>
+                .ios-fullscreen {
+                    position: fixed;
+                    top: 0;
+                    left: 0;
+                    right: 0;
+                    bottom: 0;
+                    width: 100%;
+                    height: 100%;
+                    z-index: 9999;
+                }
+
+                .container {
+                    height: 100vh; /* 标准视口高度 */
+                    height: calc(var(--vh, 1vh) * 100); /* 使用自定义变量 */
+                }
+
+                .fullscreen-button {
+                    opacity: 0.8;
+                    transition: opacity 0.3s;
+                }
+
+                .fullscreen-button:hover {
+                    opacity: 1;
+                }
+            </style>
+        `);
+
+        // 初始化全屏处理
+        handleFullScreen();
+
+        // 添加事件监听器，使用户可以按Enter键发送消息
+        document.getElementById("user-input").addEventListener("keyup", function(event) {
+            if (event.key === "Enter") {
+                sendMessage();
+            }
+        });
+
+        // 添加清除历史记录按钮的事件监听器
+        document.getElementById("clear-history-btn").addEventListener("click", clearHistory);
+
+        // 聚焦输入框
+        document.getElementById("user-input").focus();
+
+        // 初始化时加载历史记录
+        window.addEventListener('load', function() {
+            // 清除默认消息
+            document.getElementById("chat-container").innerHTML = '';
+
+            // 发送空消息来获取历史记录
+            fetch("/chat", {
+                method: "POST",
+                headers: {
+                    "Content-Type": "application/json",
+                },
+                body: JSON.stringify({ message: "" })
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.history) {
+                    try {
+                        // 打印历史记录以便调试
+                        console.log("History data received:", data.history);
+
+                        // 检查历史记录是字符串还是已经解析的对象
+                        let history;
+                        if (typeof data.history === 'string') {
+                            // 如果是字符串，尝试解析
+                            history = JSON.parse(data.history);
+                        } else {
+                            // 如果已经是对象，直接使用
+                            history = data.history;
+                        }
+
+                        if (history && history.length > 0) {
+                            // 添加历史记录
+                            history.forEach(item => {
+                                if (item.user) addMessage(item.user, "user", false);
+                                if (item.ai) addMessage(item.ai, "ai", false);
+                            });
+                        } else {
+                            // 如果没有历史记录，显示默认消息
+                            addMessage("你好！我是AI助手，有什么我可以帮助你的吗？", "ai", false);
+                        }
+                    } catch (e) {
+                        console.error("Error processing history:", e);
+                        addMessage("你好！我是AI助手，有什么我可以帮助你的吗？", "ai", false);
+                    }
+                } else {
+                    // 如果没有历史记录，显示默认消息
+                    addMessage("你好！我是AI助手，有什么我可以帮助你的吗？", "ai", false);
+                }
+            })
+            .catch(error => {
+                console.error("Error loading history:", error);
+                addMessage("你好！我是AI助手，有什么我可以帮助你的吗？", "ai", false);
+            });
+        });
+
+        // 桌面端全屏按钮逻辑
+        function toggleFullscreen() {
+            if (
+                document.fullscreenElement ||
+                document.webkitFullscreenElement ||
+                document.mozFullScreenElement ||
+                document.msFullscreenElement
+            ) {
+                // 退出全屏
+                if (document.exitFullscreen) document.exitFullscreen();
+                else if (document.webkitExitFullscreen) document.webkitExitFullscreen();
+                else if (document.mozCancelFullScreen) document.mozCancelFullScreen();
+                else if (document.msExitFullscreen) document.msExitFullscreen();
+            } else {
+                // 进入全屏
+                const docEl = document.documentElement;
+                if (docEl.requestFullscreen) docEl.requestFullscreen();
+                else if (docEl.webkitRequestFullscreen) docEl.webkitRequestFullscreen();
+                else if (docEl.mozRequestFullScreen) docEl.mozRequestFullScreen();
+                else if (docEl.msRequestFullscreen) docEl.msRequestFullscreen();
+            }
+        }
+
+        // 只在桌面端显示全屏按钮
+        function setFullscreenBtnVisibility() {
+            const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
+            const btn = document.getElementById("fullscreen-btn");
+            if (btn) btn.style.display = isMobile ? "none" : "flex";
+        }
+        setFullscreenBtnVisibility();
+
+        document.getElementById("fullscreen-btn").addEventListener("click", toggleFullscreen);
+
+        function sendMessage() {
+            const userInput = document.getElementById("user-input");
+            const message = userInput.value.trim();
+
+            if (message === "") return;
+
+            // 添加用户消息到聊天窗口
+            addMessage(message, "user");
+
+            // 清空输入框
+            userInput.value = "";
+
+            // 显示状态
+            const statusEl = document.getElementById("status");
+            statusEl.innerHTML = '<div class="typing-indicator"><span></span><span></span><span></span></div>';
+
+            // 发送请求到ESP32
+            fetch("/chat", {
+                method: "POST",
+                headers: {
+                    "Content-Type": "application/json",
+                },
+                body: JSON.stringify({ message: message })
+            })
+            .then(response => {
+                if (!response.ok) {
+                    throw new Error('网络响应不正常');
+                }
+                return response.json();
+            })
+            .then(data => {
+                // 添加AI回复到聊天窗口
+                addMessage(data.response, "ai");
+                statusEl.innerHTML = "";
+            })
+            .catch(error => {
+                console.error("Error:", error);
+                statusEl.innerHTML = "发生错误，请重试";
+                setTimeout(() => {
+                    statusEl.innerHTML = "";
+                }, 3000);
+            });
+        }
+
+        function clearHistory() {
+            if (confirm('确定要清除所有对话历史吗？')) {
+                fetch("/clear-history", {
+                    method: "POST",
+                    headers: {
+                        "Content-Type": "application/json",
+                    }
+                })
+                .then(response => {
+                    if (!response.ok) {
+                        throw new Error('网络响应不正常');
+                    }
+                    return response.json();
+                })
+                .then(data => {
+                    if (data.success) {
+                        // 清除聊天容器
+                        document.getElementById("chat-container").innerHTML = '';
+                        // 添加默认消息
+                        addMessage("你好！我是AI助手，有什么我可以帮助你的吗？", "ai");
+                    }
+                })
+                .catch(error => {
+                    console.error("Error clearing history:", error);
+                    alert('清除历史记录失败，请重试');
+                });
+            }
+        }
+
+        function addMessage(text, sender, withAnimation = true) {
+            const chatContainer = document.getElementById("chat-container");
+            const messageDiv = document.createElement("div");
+
+            messageDiv.classList.add("message");
+            if (sender === "user") {
+                messageDiv.classList.add("user-message");
+            } else {
+                messageDiv.classList.add("ai-message");
+            }
+
+            // 添加消息文本
+            messageDiv.innerText = text;
+
+            // 添加时间戳
+            const timeDiv = document.createElement("div");
+            timeDiv.classList.add("message-time");
+            timeDiv.innerText = getCurrentTime();
+            messageDiv.appendChild(timeDiv);
+
+            // 如果不需要动画，移除动画类
+            if (!withAnimation) {
+                messageDiv.style.animation = 'none';
+            }
+
+            chatContainer.appendChild(messageDiv);
+
+            // 滚动到底部
+            chatContainer.scrollTop = chatContainer.scrollHeight;
+        }
+
+        function getCurrentTime() {
+            const now = new Date();
+            const hours = now.getHours().toString().padStart(2, '0');
+            const minutes = now.getMinutes().toString().padStart(2, '0');
+            return `${hours}:${minutes}`;
+        }
+    </script>
+</body>
+</html>

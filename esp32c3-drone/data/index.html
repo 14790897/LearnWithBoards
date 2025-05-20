@@ -1,0 +1,91 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ESP32-C3 控制面板</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <div class="container">
+        <h1>ESP32-C3 控制面板</h1>
+
+        <div class="card">
+            <h2>LED 控制</h2>
+            <div class="control-group">
+                <label class="switch">
+                    <input type="checkbox" id="ledToggle">
+                    <span class="slider round"></span>
+                </label>
+                <span id="ledStatus">关闭</span>
+            </div>
+
+            <div class="control-group">
+                <label for="brightness">亮度:</label>
+                <input type="range" id="brightness" min="0" max="255" value="255">
+                <span id="brightnessValue">255</span>
+            </div>
+        </div>
+
+        <div class="card">
+            <h2>设备信息</h2>
+            <div class="info-group">
+                <p><strong>IP 地址:</strong> <span id="ipAddress">192.168.0.10</span></p>
+                <p><strong>MAC 地址:</strong> <span id="macAddress">-</span></p>
+                <p><strong>WiFi 信号:</strong> <span id="rssi">-</span></p>
+                <p><strong>主机名:</strong> <span id="hostnameDisplay">-</span></p>
+                <p><strong>固件版本:</strong> <span id="firmwareVersion">1.0.0</span></p>
+            </div>
+        </div>
+
+        <div class="card">
+            <h2>设置</h2>
+            <div class="settings-group">
+                <h3>基本设置</h3>
+                <div class="setting-item">
+                    <label for="hostname">主机名:</label>
+                    <input type="text" id="hostname" placeholder="例如: ESP32_C3_123">
+                </div>
+
+                <h3>WiFi 设置</h3>
+                <div class="setting-item">
+                    <label for="wifiSSID">WiFi SSID:</label>
+                    <input type="text" id="wifiSSID" placeholder="输入 WiFi 名称">
+                </div>
+                <div class="setting-item">
+                    <label for="wifiPassword">WiFi 密码:</label>
+                    <input type="password" id="wifiPassword" placeholder="输入 WiFi 密码">
+                </div>
+
+                <h3>网络设置</h3>
+                <div class="setting-item">
+                    <label for="staticIP">静态 IP:</label>
+                    <input type="text" id="staticIP" placeholder="例如: 192.168.0.10">
+                </div>
+                <div class="setting-item">
+                    <label for="gateway">网关:</label>
+                    <input type="text" id="gateway" placeholder="例如: 192.168.0.1">
+                </div>
+                <div class="setting-item">
+                    <label for="subnet">子网掩码:</label>
+                    <input type="text" id="subnet" placeholder="例如: 255.255.255.0">
+                </div>
+
+                <h3>电机设置</h3>
+                <div class="setting-item">
+                    <label for="motorSpeed">电机速度 (0-255):</label>
+                    <input type="range" id="motorSpeed" min="0" max="255" value="255">
+                    <span id="motorSpeedValue">255</span>
+                </div>
+
+                <div class="button-group">
+                    <button id="saveSettings" class="btn">保存设置</button>
+                    <button id="restartDevice" class="btn btn-warning">重启设备</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="script.js"></script>
+</body>
+</html>

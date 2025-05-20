@@ -1,0 +1,121 @@
+#include "Arduino.h"
+#include "esp_camera.h"
+#include "app_httpd.h"
+#include "mpu_handler.h" // Include the MPU handler
+#include <WiFi.h>
+#include <secrets.h>
+#include <ESPmDNS.h>             // Add mDNS library
+#include <Wire.h>                // Include Wire library for I2C communication
+#define CAMERA_MODEL_ESP32S3_EYE // Has PSRAM
+#include "camera_pins.h"
+
+// Define I2C pins for ESP32-S3
+#define I2C_SDA 21
+#define I2C_SCL 47
+bool enableMPU = false;
+
+void setup()
+{
+    Serial.begin(115200);
+    Serial.setDebugOutput(true);
+    esp_log_level_set("*", ESP_LOG_INFO); // "*" 表示所有标签
+
+    Serial.println();
+
+    camera_config_t config;
+    config.ledc_channel = LEDC_CHANNEL_0;
+    config.ledc_timer = LEDC_TIMER_0;
+    config.pin_d0 = Y2_GPIO_NUM;
+    config.pin_d1 = Y3_GPIO_NUM;
+    config.pin_d2 = Y4_GPIO_NUM;
+    config.pin_d3 = Y5_GPIO_NUM;
+    config.pin_d4 = Y6_GPIO_NUM;
+    config.pin_d5 = Y7_GPIO_NUM;
+    config.pin_d6 = Y8_GPIO_NUM;
+    config.pin_d7 = Y9_GPIO_NUM;
+    config.pin_xclk = XCLK_GPIO_NUM;
+    config.pin_pclk = PCLK_GPIO_NUM;
+    config.pin_vsync = VSYNC_GPIO_NUM;
+    config.pin_href = HREF_GPIO_NUM;
+    config.pin_sccb_sda = SIOD_GPIO_NUM;
+    config.pin_sccb_scl = SIOC_GPIO_NUM;
+    config.pin_pwdn = PWDN_GPIO_NUM;
+    config.pin_reset = RESET_GPIO_NUM;
+
+    config.xclk_freq_hz = 24000000;         // For OV7670, set to 20 MHz
+    config.frame_size = FRAMESIZE_VGA;      // OV7670 supports QVGA, VGA
+    config.pixel_format = PIXFORMAT_RGB565; // OV7670 does not support JPEG, use RGB565 or YUV422
+    config.grab_mode = CAMERA_GRAB_WHEN_EMPTY;
+    config.fb_location = CAMERA_FB_IN_PSRAM; // Use DRAM instead of PSRAM
+    config.fb_count = 1;
+
+    // camera init
+    esp_err_t err = esp_camera_init(&config);
+    if (err != ESP_OK)
+    {
+        Serial.printf("Camera init failed with error 0x%x", err);
+        return;
+    }
+    else
+    {
+        Serial.println("Camera init success");
+    }
+
+    sensor_t *s = esp_camera_sensor_get();
+    // OV7670 doesn't need flip or mirror by default
+    s->set_vflip(s, 0);   // Vertically flip off
+    s->set_hmirror(s, 0); // Horizontally mirror off
+
+    s->set_brightness(s, 1);  // Set brightness
+    s->set_saturation(s, -2); // Set saturation
+
+    WiFi.begin(ssid, password);
+    WiFi.setSleep(false);
+
+    Serial.print("WiFi connecting");
+    while (WiFi.status() != WL_CONNECTED)
+    {
+        delay(500);
+        Serial.print(".");
+    }
+    Serial.println("");
+    Serial.println("WiFi connected");
+
+    // Setup mDNS responder
+    const char *hostname = "esp32cam"; // The mDNS hostname
+    if (MDNS.begin(hostname))
+    {
+        Serial.printf("mDNS responder started: http://%s.local\n", hostname);
+
+        // Add service to mDNS
+        MDNS.addService("http", "tcp", 80);
+    }
+    else
+    {
+        Serial.println("Error setting up mDNS responder!");
+    }
+    Serial.printf("Sensor PID: 0x%X\n", s->id.PID);
+    // startCameraServer();
+
+    Serial.print("Camera Ready! Use 'http://");
+    Serial.print(WiFi.localIP());
+    Serial.println("' to connect");
+    Serial.print("Or use 'http://");
+    Serial.print(hostname);
+    Serial.println(".local' on compatible devices");
+}
+
+void loop()
+{
+    camera_fb_t *fb = esp_camera_fb_get();
+    if (!fb)
+    {
+        Serial.println("Camera capture failed");
+    }
+    else
+    {
+        Serial.printf("Got image: %dx%d, len=%d\n", fb->width, fb->height, fb->len);
+        esp_camera_fb_return(fb);
+    }
+    delay(1000);
+}
