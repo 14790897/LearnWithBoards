@@ -1,0 +1,49 @@
+#include <Arduino.h>
+#include <FastLED.h>
+
+#define LED_PIN 18       // WS2812 控制信号引脚
+#define NUM_LEDS 8       // 灯带灯珠数量
+#define BRIGHTNESS 100   // 灯带亮度
+#define LED_TYPE WS2812B // 灯带型号
+#define COLOR_ORDER GRB  // WS2812 默认排列
+#define OUT_PIN 19       // LD2401 OUT 输出连接的IO口
+
+CRGB leds[NUM_LEDS];
+
+void setup()
+{
+  pinMode(OUT_PIN, INPUT); // 设置 OUT_PIN 为输入
+  FastLED.addLeds<LED_TYPE, LED_PIN, COLOR_ORDER>(leds, NUM_LEDS).setCorrection(TypicalLEDStrip);
+  FastLED.setBrightness(BRIGHTNESS);
+  Serial.begin(115200);
+  Serial.println("LD2401 OUT引脚人体检测灯带控制");
+}
+
+void loop()
+{
+  int outState = digitalRead(OUT_PIN);     // 读取OUT引脚状态
+  bool humanDetected = (outState == HIGH); // LD2401 OUT高电平=有人（大多数模块都这样，具体看文档）
+  Serial.print("humanDetected: ");
+  Serial.println(humanDetected);
+
+  if (humanDetected)
+  {
+    // 有人，灯带全彩虹
+    for (int i = 0; i < NUM_LEDS; i++)
+    {
+      leds[i] = CHSV((millis() / 10 + i * 10) % 255, 255, 255);
+    }
+    FastLED.setBrightness(BRIGHTNESS);
+  }
+  else
+  {
+    // 无人，灯灭
+    for (int i = 0; i < NUM_LEDS; i++)
+    {
+      leds[i] = CRGB::Black;
+    }
+    FastLED.setBrightness(0);
+  }
+  FastLED.show();
+  delay(50);
+}

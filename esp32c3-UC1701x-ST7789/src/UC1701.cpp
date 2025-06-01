@@ -9,12 +9,12 @@ namespace UC1701
     // 定义引脚
     const uint8_t CLK_PIN = 2;  // SCK
     const uint8_t MOSI_PIN = 3; // SDA/SI
-    const uint8_t CS_PIN = 7;   // ROM_CS
-    const uint8_t DC_PIN = 6;   // DC/RS
-    const uint8_t RES_PIN = 10; // RES
+    const uint8_t CS_PIN = 6;   // ROM_CS
+    const uint8_t DC_PIN = 11;  // DC/RS
+    const uint8_t RES_PIN = 7;  // RES/RST
 
     // SPI 接口初始化
-    U8G2_UC1701_MINI12864_1_4W_HW_SPI u8g2(U8G2_R2, CS_PIN, DC_PIN, RES_PIN);
+    U8G2_UC1701_MINI12864_F_4W_SW_SPI u8g2(U8G2_R2, CLK_PIN, MOSI_PIN, CS_PIN, DC_PIN, RES_PIN);
 
     void setup()
     {
@@ -41,14 +41,18 @@ namespace UC1701
         // 测试屏幕旋转方向
         u8g2.setDisplayRotation(U8G2_R0); // 尝试不同方向：U8G2_R0, U8G2_R1, U8G2_R2, U8G2_R3
 
-        // u8g2.clearBuffer();
-        u8g2.setFont(u8g2_font_ncenB08_tr);
-        u8g2.drawStr(120, 23, "ESP32-C3");
-        u8g2.drawStr(110, 23, "UC1701x Test");
-        u8g2.sendBuffer();
-
         Serial.println("LCD initialized");
         Serial.println("Setup complete.");
+        u8g2.clearBuffer();
+        u8g2.setFont(u8g2_font_unifont_t_chinese2);
+        u8g2.setContrast(255); // 在 setup() 里加
+        u8g2.drawStr(0, 15, "ESP32-C3");
+        u8g2.drawStr(0, 45, "HELLO"); // 简短大写英文字母
+        u8g2.drawStr(0, 30, "UC1701x Test");
+        u8g2.drawUTF8(0, 20, "测试");
+        Serial.println("Drawing strings on LCD...");
+        delay(1000); // 等待 1 秒以查看结果
+        u8g2.sendBuffer();
     }
 
     void UC1701_loop()
@@ -60,11 +64,11 @@ namespace UC1701
         const int squareSize = 10; // Size of the square
 
         // Clear the buffer
-        // u8g2.clearBuffer();
+        u8g2.clearBuffer();
 
         // Draw the moving square
         u8g2.drawBox(x, y, squareSize, squareSize);
-
+        // Serial.println("Drawing square on LCD...");
         // Update the square's position
         x += dx;
         y += dy;

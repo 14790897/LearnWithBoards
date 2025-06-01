@@ -1,7 +1,7 @@
 // 定义屏幕类型：UC1701 或 ST7789
 #define UC1701_number 0
 #define ST7789_number 1
-#define SCREEN_TYPE ST7789_number // Set to ST7789 or UC1701
+#define SCREEN_TYPE UC1701_number // Set to ST7789 or UC1701
 
 #if SCREEN_TYPE == UC1701_number
 #include "UC1701.h" // Include the header file instead of the .cpp file
