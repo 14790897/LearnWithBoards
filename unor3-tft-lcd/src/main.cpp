@@ -3,8 +3,8 @@
 #include <Ucglib.h>
 #include <avr/wdt.h>
 
-// 初始化 ST7735 显示屏 (128x160, 软件 SPI)
-Ucglib_ST7735_18x128x160_HWSPI ucg(9, 10, 8); // sclk, data, cd, cs, reset
+// 初始化 ST7735 显示屏 (128x160, 硬件 SPI)
+Ucglib_ST7735_18x128x160_HWSPI ucg(9, 10, 8); //  dc, cs, reset
 
 String inputText = R"(Freenove Freenove Freenove Freenove Freenove Freenove Freenove Freenove Freenove Freenove Freenove Freenove Freenove Freenove Freenove Freenove Freenove 
 

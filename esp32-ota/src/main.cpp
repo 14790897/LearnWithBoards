@@ -5,12 +5,13 @@
 #include "secrets.h"
 #include <time.h> // Include time library for NTP
 
-IPAddress local_IP(192, 168, 0, 10); // 静态 IP 地址
+IPAddress local_IP(192, 168, 0, 220); // 静态 IP 地址
 IPAddress gateway(192, 168, 0, 1);   // 网关地址（通常是路由器地址）
 IPAddress subnet(255, 255, 255, 0);  // 子网掩码
 
 void setupOTA(const char *hostname)
 {
+  ArduinoOTA.setPort(3232);         // 设置 OTA 端口为 3232
   ArduinoOTA.setHostname(hostname); // 设置设备名称
   // ArduinoOTA.setPassword("admin"); // 可选：设置 OTA 密码
 
@@ -52,15 +53,26 @@ void setup()
   }
   Serial.println("WiFi 已连接");
 
-  setupOTA("ESP32-OTA"); // 调用抽象的 OTA 配置函数
+  // 初始化 mDNS
+  if (!MDNS.begin("ESP32_C3_123"))
+  {
+    Serial.println("mDNS 启动失败!");
+  }
+  else
+  {
+    Serial.println("mDNS 已启动: ESP32_C3_123.local");
+    MDNS.addService("arduino123", "tcp", 3232); // 添加 OTA 服务端口 3232
+  }
+
+  setupOTA("ESP32_C3_123"); // 使用与hostname一致的名称
   Serial.print("IP 地址: ");
   Serial.println(WiFi.localIP());
-
+  Serial.println("OTA 服务已启动在端口 3232");
 }
 
 void loop()
 {
   ArduinoOTA.handle(); // 处理 OTA 请求
 
-  delay(1000); // 每秒更新一次
+  delay(100); // 减少延时以提高响应性
 }

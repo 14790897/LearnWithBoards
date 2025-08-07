@@ -2,7 +2,7 @@
 #include <SPI.h>
 #include <Ucglib.h>
 
-// 初始化 ST7735 显示屏 (128x160, 软件 SPI)
+// 初始化 ST7735 显示屏 (128x160, 硬件 SPI, scl在13, sda在11, cd在9, cs在10, reset在8)
 Ucglib_ST7735_18x128x160_HWSPI ucg(9, 10, 8); // sclk, data, cd, cs, reset
 
 String inputText = R"(nihao)"; // 示例文字

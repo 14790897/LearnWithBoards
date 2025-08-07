@@ -1,25 +1,28 @@
 #include <Arduino.h>
 
-// === 常量 ===
-const int LED_PIN      = PC13;  // Black F407 板载 LED
-const int ANALOG_PIN   = PA0;   // ADC0
-const unsigned BLINK_INTERVAL = 1000;  // ms
+// 简化常量定义
+#define LED_PIN PC13
+#define ANALOG_PIN PA0
+#define BLINK_INTERVAL 1000
 
-// === 变量 ===
+// 全局变量
 unsigned long previousMillis = 0;
 bool ledState = LOW;
 
 void setup() {
-  Serial.begin(115200);
-  while (!Serial && millis() < 2000);   // 最多等 2 秒让 USB CDC 枚举
-
-  Serial.println("STM32F407 Demo Program");
-
+  // 初始化 LED 和串口
   pinMode(LED_PIN, OUTPUT);
-  // analogRead 不必专门 pinMode
-  digitalWrite(LED_PIN, ledState);
-  analogReadResolution(12);             // 可选：明确 12bit
+  digitalWrite(LED_PIN, HIGH);
+  
+  Serial.begin(115200);
+  delay(2000);  // 等待串口稳定
+  
+  // 输出启动信息
+  Serial.println("STM32F407 Ready");
+  digitalWrite(LED_PIN, LOW);
+  Serial.println("Setup OK");
 }
+
 
 void loop() {
   unsigned long now = millis();
@@ -31,12 +34,19 @@ void loop() {
     digitalWrite(LED_PIN, ledState);
 
     int analogValue = analogRead(ANALOG_PIN);
-
+    
+    // 简化的输出
     Serial.print("LED: ");
     Serial.print(ledState ? "ON " : "OFF");
     Serial.print(" | ADC: ");
     Serial.println(analogValue);
   }
-
-  // 其余后台任务……
+  
+  // 检查串口输入
+  if (Serial.available()) {
+    String input = Serial.readString();
+    input.trim();
+    Serial.print("RX: ");
+    Serial.println(input);
+  }
 }

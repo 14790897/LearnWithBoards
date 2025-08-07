@@ -52,7 +52,7 @@ cd 目标目录
 
 ### 2. 配置 WiFi 凭据
 
-- 创建 `src/secrets.h` 文件，添加你的 WiFi SSID 和密码：
+- 创建 `src/include/secrets.h` 文件，添加你的 WiFi SSID 和密码：
 
   ```cpp
   #ifndef SECRETS_H
